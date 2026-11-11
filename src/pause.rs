@@ -19,6 +19,9 @@ pub enum Pause {
     Message(String),
     /// Draw the display now: DISP shows `line` while the program runs on.
     Show(String),
+    /// A key's code, rr.p (row, column, shift plane), when one is pressed,
+    /// waiting for it or not.
+    Key(bool),
 }
 
 /// Stops the program for `Pause`; gives the text typed, for INPUT.
@@ -31,7 +34,7 @@ impl Calc {
     fn pause_for(&mut self, p: Pause) -> Res<Option<String>> {
         let Some(mut hook) = self.pause.take() else {
             return match p {
-                Pause::Show(_) => Ok(None),
+                Pause::Show(_) | Pause::Key(false) => Ok(None),
                 _ => Err(Error::User("Can't stop here".into())),
             };
         };
@@ -103,11 +106,24 @@ impl Calc {
                 self.stack.pop();
                 self.frozen = true;
             }),
+            // KEY: the code of a key pressed since, and 1, or just 0.
+            "KEY" => self.pause_for(Pause::Key(false)).map(|k| match k.and_then(|k| k.parse().ok()) {
+                Some(code) => self.stack.extend([Obj::Real(f64::trunc(code)), Obj::Real(1.0)]),
+                None => self.stack.push(Obj::Real(0.0)),
+            }),
             "WAIT" => self.need(1).and_then(|_| {
                 let Obj::Real(s) = *self.peek(1) else {
                     return Err(Error::BadType);
                 };
-                if s.is_nan() || s <= 0.0 || s > 1e6 {
+                // 0 WAIT (or -1) waits for a key and gives its code, rc.p.
+                if s <= 0.0 {
+                    let k = self.pause_for(Pause::Key(true))?;
+                    let code = k.and_then(|k| k.parse().ok()).ok_or(Error::BadValue)?;
+                    self.stack.pop();
+                    self.stack.push(Obj::Real(code));
+                    return Ok(());
+                }
+                if s.is_nan() || s > 1e6 {
                     return Err(Error::BadValue);
                 }
                 self.stack.pop();

@@ -254,6 +254,22 @@ pub fn cells(area: Rect) -> Vec<(Rect, &'static Key)> {
     out
 }
 
+/// The calculator's code for a key, row and column: 11 for the first soft
+/// key, 51 for ENTER.
+pub fn code(key: &Key) -> u32 {
+    for (r, row) in ROWS.iter().enumerate() {
+        if let Some(c) = row.iter().position(|k| std::ptr::eq(k, key)) {
+            return (r as u32 + 1) * 10 + c as u32 + 1;
+        }
+    }
+    0
+}
+
+/// The first key that `f` picks out.
+pub fn find(f: impl Fn(&Key) -> bool) -> Option<&'static Key> {
+    ROWS.iter().flat_map(|r| r.iter()).find(|k| f(k))
+}
+
 /// The key under a mouse click at (`col`, `row`), if any.
 pub fn hit(area: Rect, col: u16, row: u16) -> Option<&'static Key> {
     cells(area)

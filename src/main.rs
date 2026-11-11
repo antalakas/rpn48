@@ -113,6 +113,7 @@ fn batch_pause() -> PauseFn {
                 eprintln!("{s}");
                 Ok(None)
             }
+            Pause::Key(_) => Ok(None),
         }
     })
 }
@@ -123,17 +124,22 @@ thread_local! {
     static TERMINAL: RefCell<Option<DefaultTerminal>> = const { RefCell::new(None) };
     /// Set when the calculator was turned off while a program was halted.
     static OFF: Cell<bool> = const { Cell::new(false) };
+    /// Events read while checking a running program for Esc.
+    static PENDING: RefCell<std::collections::VecDeque<Event>> = RefCell::default();
 }
 
 /// A halted program hands the calculator to a fresh App, which runs the
 /// usual loop until CONT or KILL (or ENTER, for INPUT), then hands it back.
 fn interactive_pause() -> PauseFn {
     Box::new(|calc, p| {
+        if let Pause::Key(wait) = p {
+            return read_key(calc, wait);
+        }
         let mut app = App::with(std::mem::replace(calc, Calc::blank()));
         app.calc.pause = Some(interactive_pause());
         let show = matches!(p, Pause::Show(_));
         match p {
-            Pause::Halt | Pause::Show(_) => {}
+            Pause::Halt | Pause::Show(_) | Pause::Key(_) => {}
             Pause::Prompt(s) => app.prompt = Some(s),
             Pause::Message(s) => (app.prompt, app.msgbox) = (Some(s), true),
             Pause::Input(s, d) => {
@@ -157,6 +163,62 @@ fn interactive_pause() -> PauseFn {
             }
         }
     })
+}
+
+/// KEY and 0 WAIT: the code of the next key pressed, typed or clicked, as
+/// rc.p; a click on a shift key first chooses the plane.
+fn read_key(calc: &mut Calc, wait: bool) -> Result<Option<String>, Error> {
+    let app = App::with(std::mem::replace(calc, Calc::blank()));
+    let drawn = draw(&app);
+    *calc = app.calc;
+    drawn.map_err(|e| Error::User(e.to_string()))?;
+    let mut plane = 1;
+    loop {
+        let Some(ev) = next_event(wait).map_err(|e| Error::User(e.to_string()))? else {
+            return Ok(None);
+        };
+        let key = match ev {
+            Event::Key(k) if k.kind == KeyEventKind::Press => match k.code {
+                KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                    return Err(Error::Interrupted);
+                }
+                KeyCode::Char(ch) => keypad::find(|key| match key.main {
+                    Act::Text(s, 0) => s.chars().eq([ch]),
+                    Act::Op(o) => o == ch,
+                    _ => false,
+                }),
+                KeyCode::F(n @ 1..=6) => keypad::find(|key| key.main == Act::Soft(n as usize - 1)),
+                code => {
+                    let act = match code {
+                        KeyCode::Enter => Act::Enter,
+                        KeyCode::Backspace => Act::Backspace,
+                        KeyCode::Delete => Act::Delete,
+                        KeyCode::Left => Act::Left,
+                        KeyCode::Right => Act::Right,
+                        KeyCode::Up => Act::Up,
+                        KeyCode::Down => Act::Down,
+                        KeyCode::Esc => Act::Cancel,
+                        _ => Act::Nothing,
+                    };
+                    keypad::find(|key| act != Act::Nothing && key.main == act)
+                }
+            },
+            Event::Mouse(m) if m.kind == MouseEventKind::Down(MouseButton::Left) => {
+                let size = TERMINAL.with_borrow(|t| t.as_ref().map(|t| t.size()).transpose());
+                let size = size.ok().flatten().unwrap_or_default();
+                keypad::split(Rect::new(0, 0, size.width, size.height))
+                    .1
+                    .and_then(|area| keypad::hit(area, m.column, m.row))
+            }
+            _ => None,
+        };
+        match key.map(|k| k.main) {
+            Some(Act::Shift(Shift::Left)) => plane = 2,
+            Some(Act::Shift(Shift::Right)) => plane = 3,
+            Some(_) => return Ok(Some(format!("{}.{plane}", keypad::code(key.unwrap())))),
+            None => {}
+        }
+    }
 }
 
 /// How a halted program goes on.
@@ -188,7 +250,7 @@ fn run(app: &mut App) -> io::Result<()> {
         draw(app)?;
         let size = TERMINAL.with_borrow(|t| t.as_ref().map(|t| t.size()).transpose())?;
         let size = size.unwrap_or_default();
-        match event::read()? {
+        match next_event(true)?.unwrap() {
             Event::Key(k) if k.kind == KeyEventKind::Press => app.key(k),
             Event::Mouse(m) if m.kind == MouseEventKind::Down(MouseButton::Left) => {
                 let keys = keypad::split(Rect::new(0, 0, size.width, size.height)).1;
@@ -203,17 +265,32 @@ fn run(app: &mut App) -> io::Result<()> {
 }
 
 /// Esc or Ctrl-C stops a running program, as ON does on the calculator.
+/// Other events that arrive meanwhile are kept for KEY and for afterwards.
 fn interrupted() -> bool {
     while event::poll(Duration::ZERO).unwrap_or(false) {
-        if let Ok(Event::Key(k)) = event::read()
+        let Ok(ev) = event::read() else { break };
+        if let Event::Key(k) = &ev
             && k.kind == KeyEventKind::Press
             && (k.code == KeyCode::Esc
                 || (k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL)))
         {
             return true;
         }
+        PENDING.with_borrow_mut(|p| p.push_back(ev));
     }
     false
+}
+
+/// The next event: one kept while a program ran, or else from the terminal,
+/// waiting for it or not.
+fn next_event(wait: bool) -> io::Result<Option<Event>> {
+    if let Some(ev) = PENDING.with_borrow_mut(|p| p.pop_front()) {
+        return Ok(Some(ev));
+    }
+    if !wait && !event::poll(Duration::ZERO)? {
+        return Ok(None);
+    }
+    event::read().map(Some)
 }
 
 pub struct App {
