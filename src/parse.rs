@@ -57,7 +57,7 @@ pub fn valid_name(s: &str) -> bool {
         && first != '.'
         && !s.chars().any(is_delim)
         && !s.contains([
-            '}', '»', ')', ',', '+', '-', '*', '/', '^', '=', '<', '>', '[', ']',
+            '}', '»', ')', ',', '+', '-', '*', '/', '^', '=', '<', '>', '[', ']', '√',
         ])
         && parse_num(s).is_none()
         && !KEYWORDS.contains(&s)

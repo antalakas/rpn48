@@ -495,6 +495,7 @@ pub fn tidy(e: Expr) -> Expr {
                 '*' if b == Num(-1.0) => tidy(neg(a)),
                 '/' if z(&a) => Num(0.0),
                 '/' if one(&b) => a,
+                '/' if b == Num(-1.0) => tidy(neg(a)),
                 '^' if z(&b) => Num(1.0),
                 '^' if one(&b) => a,
                 c => op(c, a, b),

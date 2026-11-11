@@ -247,11 +247,17 @@ impl Calc {
                 Ok(vec![to_obj(fraction(x))])
             }),
             // lo hi 'expr' 'X' ∫ integrates numerically.
+            // With a name or expression for a limit, symbolically: 0 'Y'
+            // 'X^2' 'X' ∫ is 'Y^3/3'.
             "∫" => self.args(4, |c, a| {
-                let (Obj::Real(lo), Obj::Real(hi), Obj::Name(x)) = (&a[0], &a[1], &a[3]) else {
+                let Obj::Name(x) = &a[3] else {
                     return Err(Error::BadType);
                 };
-                Ok(vec![Obj::Real(r12(c.integrate(&a[2], x, *lo, *hi)?))])
+                if let (Obj::Real(lo), Obj::Real(hi)) = (&a[0], &a[1]) {
+                    return Ok(vec![Obj::Real(r12(c.integrate(&a[2], x, *lo, *hi)?))]);
+                }
+                let (lo, hi, e) = (from_obj(&a[0])?, from_obj(&a[1])?, from_obj(&a[2])?);
+                Ok(vec![to_obj(c.integral(&lo, &hi, &e, x)?)])
             }),
             // 'I' 1 10 'I^2' Σ sums over I = 1, 2, … 10.
             "Σ" => self.args(4, |c, a| {

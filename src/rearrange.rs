@@ -349,8 +349,123 @@ mod tests {
             run("'X*X+X+X+1' COLCT 'Y+X' COLCT"),
             ["'X^2+2*X+1'", "'X+Y'"]
         );
+        assert_eq!(run("0 'Y' '3*X^2+2*X+1' 'X' ∫"), ["'Y^3+Y^2+Y'"]);
+        assert_eq!(run("RAD 0 'Y' 'SIN(X)' 'X' ∫"), ["'-COS(Y)+1'"]);
+        assert_eq!(
+            run("1 'Y' 'X^-2' 'X' ∫ 0 'Y' 'EXP(2*X)' 'X' ∫"),
+            ["'1-1/Y'", "'.5*EXP(2*Y)-.5'"]
+        );
+        assert_eq!(run("0 1 'X^2' 'X' ∫"), [".333333333333"]);
         let mut c = Calc::new();
+        assert!(c.exec_line("0 'Y' 'X*EXP(X)' 'X' ∫").is_err());
         assert!(c.exec_line("'X^2+X^2' 'X' ISOL").is_err());
         assert!(c.exec_line("'X^3' 'X' QUAD").is_err());
+    }
+}
+
+impl Calc {
+    /// The coefficient m when `u` is m·x + k, so that a function of u can be
+    /// integrated as one of x divided by m.
+    fn slope(&self, u: &Expr, x: &str) -> Option<Expr> {
+        let m = self.collect(deriv(u, x, &None).ok()?);
+        (!contains(&m, x) && m != Num(0.0)).then_some(m)
+    }
+
+    /// An antiderivative of `e` in `x`, for polynomials and the elementary
+    /// functions of linear arguments; None when there is no simple one.
+    pub(crate) fn antideriv(&self, e: &Expr, x: &str) -> Option<Expr> {
+        let has = |e: &Expr| contains(e, x);
+        if !has(e) {
+            return Some(op('*', e.clone(), Name(x.into())));
+        }
+        let f = |e: &Expr| self.antideriv(e, x);
+        let n = Num;
+        let r = match e {
+            Name(_) => op('/', op('^', e.clone(), n(2.0)), n(2.0)),
+            Neg(a) => neg(f(a)?),
+            Op(c @ ('+' | '-'), a, b) => op(*c, f(a)?, f(b)?),
+            Op('*', a, b) if !has(a) => op('*', (**a).clone(), f(b)?),
+            Op('*', a, b) if !has(b) => op('*', f(a)?, (**b).clone()),
+            Op('/', a, b) if !has(b) => op('/', f(a)?, (**b).clone()),
+            // c/u for linear u is c·LN(u)/m.
+            Op('/', a, b) if !has(a) => {
+                let m = self.slope(b, x);
+                match (m, &**b) {
+                    (Some(m), _) => op(
+                        '/',
+                        op('*', (**a).clone(), func("LN", vec![(**b).clone()])),
+                        m,
+                    ),
+                    (None, Op('^', u, p)) if !has(p) => {
+                        return f(&op(
+                            '*',
+                            (**a).clone(),
+                            op('^', (**u).clone(), neg((**p).clone())),
+                        ));
+                    }
+                    _ => return self.by_expanding(e, x),
+                }
+            }
+            // u^p for linear u: u^(p+1)/((p+1)·m), or LN(u)/m when p is -1.
+            Op('^', u, p) if !has(p) => {
+                let m = self.slope(u, x)?;
+                if self.collect((**p).clone()) == Num(-1.0) {
+                    op('/', func("LN", vec![(**u).clone()]), m)
+                } else {
+                    let p1 = op('+', (**p).clone(), n(1.0));
+                    op('/', op('^', (**u).clone(), p1.clone()), op('*', p1, m))
+                }
+            }
+            // a^u for constant a: a^u/(LN(a)·m).
+            Op('^', a, u) if !has(a) => {
+                let m = self.slope(u, x)?;
+                op('/', e.clone(), op('*', func("LN", vec![(**a).clone()]), m))
+            }
+            Fn(name, args) if args.len() == 1 => {
+                let u = &args[0];
+                let m = self.slope(u, x)?;
+                let g = |name: &str| func(name, vec![u.clone()]);
+                // Trigonometric functions take angles in the angle mode.
+                let k = match self.angle_factor() {
+                    Some(k) => op('*', m.clone(), k),
+                    None => m.clone(),
+                };
+                match name.as_str() {
+                    "SIN" => neg(op('/', g("COS"), k)),
+                    "COS" => op('/', g("SIN"), k),
+                    "TAN" => neg(op('/', func("LN", vec![g("COS")]), k)),
+                    "EXP" => op('/', g("EXP"), m),
+                    "ALOG" => op('/', g("ALOG"), op('*', m, func("LN", vec![n(10.0)]))),
+                    "LN" => op('/', op('-', op('*', u.clone(), g("LN")), u.clone()), m),
+                    "SINH" => op('/', g("COSH"), m),
+                    "COSH" => op('/', g("SINH"), m),
+                    "√" => op(
+                        '/',
+                        op('*', n(2.0), op('^', u.clone(), n(1.5))),
+                        op('*', n(3.0), m),
+                    ),
+                    "SQ" => op('/', op('^', u.clone(), n(3.0)), op('*', n(3.0), m)),
+                    "INV" => op('/', func("LN", vec![u.clone()]), m),
+                    _ => return None,
+                }
+            }
+            _ => return self.by_expanding(e, x),
+        };
+        Some(r)
+    }
+
+    // Products of sums, as polynomials are, integrate term by term.
+    fn by_expanding(&self, e: &Expr, x: &str) -> Option<Expr> {
+        let x2 = colct(&expand(e));
+        (x2 != *e).then(|| self.antideriv(&x2, x)).flatten()
+    }
+
+    /// lo hi 'expr' 'X' ∫ with a symbolic limit: F(hi)-F(lo).
+    pub(crate) fn integral(&self, lo: &Expr, hi: &Expr, e: &Expr, x: &str) -> Res<Expr> {
+        let big = self
+            .antideriv(&self.collect(e.clone()), x)
+            .ok_or(Error::BadValue)?;
+        let at = |v: &Expr| subst(&big, &[(x.to_string(), v.clone())]);
+        Ok(self.collect(colct(&self.collect(op('-', at(hi), at(lo))))))
     }
 }
