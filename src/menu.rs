@@ -33,6 +33,8 @@ pub enum Menu {
     Symbolic,
     Time,
     Units,
+    Solvr,
+    Plot,
     /// A category of the UNITS menu, by its place in units::CATEGORIES.
     UnitCat(u8),
 }
@@ -127,7 +129,11 @@ const STAT: &[&str] = &[
 const SYMBOLIC: &[&str] = &[
     "∂", "∫", "Σ", "ROOT", "TAYLR", "|", //
     "COLCT", "→Q", "EQ→", "EVAL", "→NUM", "=", //
-    "ISOL", "QUAD", "EXPAN", //
+    "ISOL", "QUAD", "EXPAN", "STEQ", "RCEQ", "SOLVR", //
+];
+const PLOT: &[&str] = &[
+    "DRAW", "AUTO", "XRNG", "YRNG", "INDEP", "STEQ", //
+    "FUNCTION", "POLAR", "SCATTER", "RCEQ", "SOLVR", //
 ];
 const TIME: &[&str] = &[
     "TIME", "DATE", "TICKS", "→HMS", "HMS→", "HMS+", //
@@ -135,7 +141,7 @@ const TIME: &[&str] = &[
 ];
 
 impl Menu {
-    pub const ALL: [Menu; 26] = [
+    pub const ALL: [Menu; 28] = [
         Menu::Mth,
         Menu::Vectr,
         Menu::Matr,
@@ -162,6 +168,8 @@ impl Menu {
         Menu::Symbolic,
         Menu::Time,
         Menu::Units,
+        Menu::Solvr,
+        Menu::Plot,
     ];
 
     /// The menus on F7–F11.
@@ -195,6 +203,8 @@ impl Menu {
             Menu::Symbolic => "SYMBOLIC",
             Menu::Time => "TIME",
             Menu::Units => "UNITS",
+            Menu::Solvr => "SOLVR",
+            Menu::Plot => "PLOT",
             Menu::UnitCat(i) => CATEGORIES[i as usize].0,
         }
     }
@@ -245,8 +255,10 @@ impl Menu {
             Menu::Stat => STAT,
             Menu::Symbolic => SYMBOLIC,
             Menu::Time => TIME,
+            Menu::Plot => PLOT,
             Menu::Units => &CATEGORIES.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
             Menu::UnitCat(i) => CATEGORIES[i as usize].1,
+            Menu::Solvr => return calc.solvr_items(),
             Menu::Var => return calc.cur_vars().iter().map(|(n, _)| n.clone()).collect(),
             // The custom menu lists what the variable CST holds.
             Menu::Cst => {

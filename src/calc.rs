@@ -9,6 +9,7 @@ use crate::menu::Menu;
 use crate::obj::{Base, Coord, Fmt, Node, Obj, r12, set_base, set_coord};
 use crate::parse::parse;
 use crate::pause::PauseFn;
+use crate::plot::Plot;
 use crate::{array, binary, lists, more, units};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -186,6 +187,8 @@ pub struct Calc {
     pub disp: Vec<String>,
     /// FREEZE: the DISP lines stay up after the program ends.
     pub frozen: bool,
+    /// What DRAW drew, while the display shows it.
+    pub plot: Option<Plot>,
     /// The arguments of the last command, for LASTARG.
     pub last_args: Vec<Obj>,
     /// The last error, for ERRN and ERRM.
@@ -228,6 +231,7 @@ impl Calc {
             cont: false,
             disp: vec![],
             frozen: false,
+            plot: None,
             last_args: vec![],
             last_err: None,
             locals: vec![],
@@ -479,8 +483,15 @@ impl Calc {
             self.path.push(name.into());
             return Some(Ok(()));
         }
+        // Programs, names and algebraics run; anything else, lists included,
+        // is put on the stack as it is.
         let v = v.clone();
-        Some(self.nested(v))
+        if matches!(v, Obj::Prog(_) | Obj::Name(_) | Obj::Alg(_)) {
+            Some(self.nested(v))
+        } else {
+            self.stack.push(v);
+            Some(Ok(()))
+        }
     }
 
     // A word runs as a local variable, a built-in command or a global variable,
@@ -634,6 +645,8 @@ impl Calc {
             .or_else(|| self.stat_cmd(w))
             .or_else(|| self.more_cmd(w))
             .or_else(|| self.pause_cmd(w))
+            .or_else(|| self.solve_cmd(w))
+            .or_else(|| self.plot_cmd(w))
         {
             return Some(r);
         }
@@ -1599,6 +1612,10 @@ mod tests {
         assert_eq!(run("« → a b « a b * » » 'MUL' STO 6 7 MUL"), ["42"]);
         assert_eq!(run("5 'X' STO X X *"), ["25"]);
         assert_eq!(run("'Y' Y"), ["'Y'", "'Y'"]);
+        assert_eq!(
+            run("{ 1 A } 'L' STO L { 1 A } EVAL"),
+            ["{ 1 A }", "1", "'A'"]
+        );
         assert_eq!(run("0 1 10 FOR i i + NEXT"), ["55"]);
         assert_eq!(run("1 1 10 START 2 * 3 STEP"), ["16"]);
         assert_eq!(run("1 WHILE DUP 100 < REPEAT 2 * END"), ["128"]);

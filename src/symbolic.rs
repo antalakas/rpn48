@@ -57,7 +57,7 @@ impl Calc {
     }
 
     /// The value of `e` with `var` set to `x`, computed as →NUM would.
-    fn eval_at(&mut self, e: &Obj, var: &str, x: f64) -> Res<f64> {
+    pub(crate) fn eval_at(&mut self, e: &Obj, var: &str, x: f64) -> Res<f64> {
         let base = self.stack.len();
         self.stack.push(Obj::Real(x));
         let was = std::mem::replace(&mut self.numeric, true);
@@ -110,7 +110,7 @@ impl Calc {
     /// A root of `e` in `var` near the guess, or between two guesses.
     /// Bracketed roots are narrowed by bisection; otherwise the secant method
     /// looks for one, switching to bisection once the sign changes.
-    fn root(&mut self, e: &Obj, var: &str, (mut a, mut b): (f64, f64)) -> Res<f64> {
+    pub(crate) fn root(&mut self, e: &Obj, var: &str, (mut a, mut b): (f64, f64)) -> Res<f64> {
         let (mut fa, mut fb) = (self.eval_at(e, var, a)?, self.eval_at(e, var, b)?);
         for _ in 0..200 {
             if fa == 0.0 {

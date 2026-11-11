@@ -64,7 +64,7 @@ impl Calc {
     }
 
     /// The x and y columns, for the two-variable statistics.
-    fn xy(&self) -> Res<(Vec<f64>, Vec<f64>)> {
+    pub(crate) fn xy(&self) -> Res<(Vec<f64>, Vec<f64>)> {
         let (m, p) = (self.data()?, self.par());
         Ok((self.column(&m, p.x)?, self.column(&m, p.y)?))
     }

@@ -4,19 +4,25 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
+use ratatui::widgets::canvas::{Canvas, Line as CLine, Points};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
 use crate::App;
 use crate::keypad::{self, Act, Shift};
-use crate::obj::{Coord, Fmt};
+use crate::obj::{Coord, Fmt, fmt_real, r12};
+use crate::plot::Plot;
 
 const LEFT_SHIFT: Color = Color::Magenta;
 const RIGHT_SHIFT: Color = Color::Green;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let (display, keys) = keypad::split(f.area());
-    draw_display(f, app, display);
+    match &app.calc.plot {
+        Some(p) => draw_plot(f, p, app.calc.fmt, display),
+        None => draw_display(f, app, display),
+    }
     if let Some(area) = keys {
         draw_keys(f, app, area);
     }
@@ -145,6 +151,58 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
         labels.push(Span::styled(center(&fit(label, cell), cell), style));
     }
     f.render_widget(Paragraph::new(Line::from(labels)), row(y));
+}
+
+// The plot fills the display, axes dimmed, with the cursor's coordinates in
+// the bottom border.
+fn draw_plot(f: &mut Frame, p: &Plot, fmt: Fmt, area: Rect) {
+    let num = |x: f64| fmt_real(r12(x), fmt);
+    let (cx, cy) = p.cursor;
+    let hints = format!(
+        " ({},{}) · arrows move · ENTER coordinates · Esc back ",
+        num(cx),
+        num(cy)
+    );
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(" PLOT ")
+        .title_bottom(Line::from(hints).dim());
+    let ((x0, x1), (y0, y1)) = (p.x, p.y);
+    let cols = area.width.saturating_sub(2).max(1) as f64;
+    let canvas = Canvas::default()
+        .block(block)
+        .marker(Marker::Braille)
+        .x_bounds([x0, x1])
+        .y_bounds([y0, y1])
+        .paint(|ctx| {
+            let axis = Color::DarkGray;
+            if (y0..=y1).contains(&0.0) {
+                ctx.draw(&CLine::new(x0, 0.0, x1, 0.0, axis));
+            }
+            if (x0..=x1).contains(&0.0) {
+                ctx.draw(&CLine::new(0.0, y0, 0.0, y1, axis));
+            }
+            ctx.print(x0, y0, Span::raw(format!("{},{}", num(x0), num(y0))).dim());
+            let top = format!("{},{}", num(x1), num(y1));
+            // Right-aligned: as many columns back from the edge as it is long.
+            let w = (x1 - x0) * top.chars().count() as f64 / cols;
+            ctx.print(x1 - w, y1, Span::raw(top).dim());
+            ctx.layer();
+            for c in &p.curves {
+                for s in c.windows(2) {
+                    ctx.draw(&CLine::new(s[0].0, s[0].1, s[1].0, s[1].1, Color::Cyan));
+                }
+            }
+            ctx.draw(&Points {
+                coords: &p.points,
+                color: Color::Yellow,
+            });
+            ctx.layer();
+            let (dx, dy) = ((x1 - x0) / 60.0, (y1 - y0) / 30.0);
+            ctx.draw(&CLine::new(cx - dx, cy, cx + dx, cy, LEFT_SHIFT));
+            ctx.draw(&CLine::new(cx, cy - dy, cx, cy + dy, LEFT_SHIFT));
+        });
+    f.render_widget(canvas, area);
 }
 
 // Each key is two lines: its shifted functions, left shift's at the left in

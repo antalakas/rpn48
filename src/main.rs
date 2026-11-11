@@ -12,7 +12,9 @@ mod obj;
 mod parse;
 mod pause;
 mod persist;
+mod plot;
 mod rearrange;
+mod solve;
 mod stat;
 mod symbolic;
 mod ui;
@@ -285,6 +287,9 @@ impl App {
             return self.resume = Some(Resume::Cont);
         }
         self.unfreeze();
+        if self.calc.plot.is_some() {
+            return self.plot_key(k.code);
+        }
         let had_message = self.message.take().is_some();
         self.shift = None;
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
@@ -306,6 +311,13 @@ impl App {
             KeyCode::Down => Act::Down,
             KeyCode::Tab => Act::NextPage,
             KeyCode::BackTab => Act::PrevPage,
+            // Shift and Alt stand in for the calculator's ◀ and ▶ shifts.
+            KeyCode::F(n @ 1..=6) if k.modifiers.contains(KeyModifiers::SHIFT) => {
+                Act::SoftSto(n as usize - 1)
+            }
+            KeyCode::F(n @ 1..=6) if k.modifiers.contains(KeyModifiers::ALT) => {
+                Act::SoftRcl(n as usize - 1)
+            }
             KeyCode::F(n @ 1..=6) => Act::Soft(n as usize - 1),
             KeyCode::F(n @ 7..=11) => Act::Menu(Menu::FKEYS[n as usize - 7]),
             KeyCode::Esc if !had_message => Act::Cancel,
@@ -322,6 +334,9 @@ impl App {
         }
         self.unfreeze();
         self.message = None;
+        if self.calc.plot.take().is_some() {
+            return;
+        }
         let (label, act) = match self.shift.take() {
             _ if matches!(key.main, Act::Shift(_)) => (key.face, key.main),
             None => (key.face, key.main),
@@ -342,7 +357,10 @@ impl App {
             // and divide by it; elsewhere they act unshifted.
             Act::SoftSto(i) | Act::SoftRcl(i) => {
                 let name = self.calc.menu.page(&self.calc, self.calc.page)[i].clone();
-                if let (Menu::UnitCat(_), false) = (self.calc.menu, name.is_empty()) {
+                let solvr = self.calc.menu == Menu::Solvr && !name.is_empty() && name != "EXPR=";
+                if solvr {
+                    self.solvr_key(&name, Some(matches!(act, Act::SoftSto(_))));
+                } else if let (Menu::UnitCat(_), false) = (self.calc.menu, name.is_empty()) {
                     let left = matches!(act, Act::SoftSto(_));
                     self.unit_key(&name, if left { "CONVERT" } else { "/" });
                 } else if self.calc.menu == Menu::Var && !name.is_empty() {
@@ -474,7 +492,40 @@ impl App {
         match self.calc.menu.sub(&label) {
             Some(m) => (self.calc.menu, self.calc.page) = (m, 0),
             None if matches!(self.calc.menu, Menu::UnitCat(_)) => self.unit_key(&label, "*"),
+            None if self.calc.menu == Menu::Solvr && label != "EXPR=" => {
+                self.solvr_key(&label, None)
+            }
             None => self.command(&label),
+        }
+    }
+
+    // A variable's key in SOLVR stores level 1 (or the number typed) in it;
+    // left-shifted it solves EQ for the variable, right-shifted recalls it.
+    fn solvr_key(&mut self, name: &str, shift: Option<bool>) {
+        match shift {
+            None => {
+                self.exec(&format!("'{name}' STO"));
+                if self.message.is_none()
+                    && let Some(v) = self.calc.global(name)
+                {
+                    self.message = Some(format!("{name}: {}", v.show(self.calc.fmt)));
+                }
+            }
+            Some(true) => {
+                if !self.line.is_empty() {
+                    self.exec("");
+                    if self.message.is_some() {
+                        return;
+                    }
+                }
+                self.push_undo();
+                self.message = Some(match self.calc.solve_for(name) {
+                    Ok(m) => m.into(),
+                    Err(e) => e.report(),
+                });
+                self.save();
+            }
+            Some(false) => self.exec(&format!("'{name}' RCL")),
         }
     }
 
@@ -543,6 +594,27 @@ impl App {
             self.calc.disp.clear();
         }
         self.save();
+    }
+
+    // While the plot is up the arrows move its cursor and ENTER puts the
+    // cursor's coordinates on the stack, as (x,y); any other key leaves.
+    fn plot_key(&mut self, code: KeyCode) {
+        let Some(p) = &mut self.calc.plot else { return };
+        let (dx, dy) = ((p.x.1 - p.x.0) / 40.0, (p.y.1 - p.y.0) / 20.0);
+        let (x, y) = &mut p.cursor;
+        match code {
+            KeyCode::Left => *x -= dx,
+            KeyCode::Right => *x += dx,
+            KeyCode::Up => *y += dy,
+            KeyCode::Down => *y -= dy,
+            KeyCode::Enter => {
+                let c = Obj::Complex(obj::r12(*x), obj::r12(*y));
+                self.push_undo();
+                self.calc.stack.push(c);
+                self.save();
+            }
+            _ => self.calc.plot = None,
+        }
     }
 
     /// A key after FREEZE takes the DISP lines down.
