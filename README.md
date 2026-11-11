@@ -72,7 +72,7 @@ variable has that name.
   `.1 .2 + .3 ==` is true), complex numbers `(1,2)`, strings, names `'X'`,
   algebraics `'X^2+1'`, binary integers `# FFh`, vectors `[ 1 2 3 ]` and
   matrices `[[ 1 2 ] [ 3 4 ]]`, lists `{ 1 2 }`, programs `« … »`, tagged
-  objects `:A:5` and directories.
+  objects `:A:5`, unit objects `9.8_m/s^2` and directories.
 - **Math:** `+ - * / ^ NEG INV SQ √ XROOT ABS SIGN IP FP FLOOR CEIL MOD MIN MAX % %CH %T !`,
   `RND TRNC MANT XPON`, trigonometry and its inverses in DEG/RAD/GRAD,
   hyperbolics, `LN LOG EXP ALOG LNP1 EXPM`, `π e`, complex
@@ -88,6 +88,15 @@ variable has that name.
 - **Arrays:** `+ - *` and `/` (which solves `B A /` for A·X = B),
   `DET INV TRN DOT CROSS ABS IDN CON RDM RNRM CNRM TRACE →ARRY ARRY→ V→ →V2 →V3`,
   and `GET PUT SIZE`.
+- **Units:** the calculator's unit table (length, area, volume, time,
+  speed, mass, force, energy, power, pressure, temperature, electricity,
+  angles, light, radiation, viscosity) with SI prefixes (`km`, `MeV`, `μs`).
+  `+ - * / ^ INV SQ √` and comparisons work on units, converting where
+  needed (`1_m 1_ft +` is `1.3048_m`), and `CONVERT UBASE UVAL UFACT →UNIT`.
+  Temperatures convert as scales: `100_°C 1_°F CONVERT` is `212_°F`. An
+  angle with units is taken as such by `SIN COS TAN` in any angle mode. In
+  the UNITS menu a unit's key gives a number those units; shifted, it
+  converts to them or divides by them.
 - **Binary integers:** `HEX DEC OCT BIN`, word size `STWS RCWS`,
   `R→B B→R`, bitwise `AND OR XOR NOT`, shifts and rotations
   `SL SR SLB SRB ASR RL RR RLB RRB`.
@@ -113,7 +122,7 @@ variable has that name.
 
 The menus follow the calculator's: MTH leads to VECTR, MATR, LIST, HYP,
 REAL, BASE, PROB and CMPL, PRG to BRCH, TEST, TYPE, LIST and ERROR, and the
-keyboard's shifted keys open STAT, SYMBOLIC, TIME and MEMORY.
+keyboard's shifted keys open STAT, SYMBOLIC, TIME, UNITS and MEMORY.
 
 As on the calculator, a failed command puts its arguments back and reports
 `SIN Error: Bad Argument Type` and the like.
@@ -127,7 +136,7 @@ For example, a recursive factorial:
 
 ## Not there (yet)
 
-Units, complex arrays, symbolic integration and equation rearranging
+Complex arrays, symbolic integration and equation rearranging
 (`ISOL`, `QUAD`, `EXPAN`), polar display, plotting, the solver and matrix
 writer applications, graphics objects, `HALT`/`CONT`, `INPUT`/`PROMPT`, and
 the calculator's I/O.

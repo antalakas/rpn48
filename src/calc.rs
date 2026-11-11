@@ -8,7 +8,7 @@ use crate::alg::{self, SYMBOLIC, is_symbolic};
 use crate::menu::Menu;
 use crate::obj::{Base, Fmt, Node, Obj, r12, set_base};
 use crate::parse::parse;
-use crate::{array, binary, lists, more};
+use crate::{array, binary, lists, more, units};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -20,6 +20,8 @@ pub enum Error {
     Infinite,
     Syntax,
     Dim,
+    InvalidUnit,
+    InconsistentUnits,
     DirNotAllowed,
     NonEmptyDir,
     Memory,
@@ -43,6 +45,8 @@ impl fmt::Display for Error {
             Error::Infinite => "Infinite Result",
             Error::Syntax => "Invalid Syntax",
             Error::Dim => "Invalid Dimension",
+            Error::InvalidUnit => "Invalid Unit",
+            Error::InconsistentUnits => "Inconsistent Units",
             Error::DirNotAllowed => "Directory Not Allowed",
             Error::NonEmptyDir => "Non-Empty Directory",
             Error::Memory => "Insufficient Memory",
@@ -67,6 +71,8 @@ const CODES: &[(u32, Error)] = &[
     (0x304, Error::UndefinedResult),
     (0x305, Error::Infinite),
     (0x501, Error::Dim),
+    (0xB01, Error::InvalidUnit),
+    (0xB02, Error::InconsistentUnits),
 ];
 
 impl Error {
@@ -632,6 +638,11 @@ impl Calc {
                     Ok(())
                 }
                 Obj::Vect(_) | Obj::Mat(_) => self.eval_word("ARRY→"),
+                Obj::Unit(x, u) => {
+                    self.stack.pop();
+                    self.stack.extend([Obj::Real(x), Obj::Unit(1.0, u)]);
+                    Ok(())
+                }
                 Obj::Alg(alg::Expr::Op('=', a, b)) => {
                     self.stack.pop();
                     self.stack.extend([alg::to_obj(*a), alg::to_obj(*b)]);
@@ -831,7 +842,10 @@ impl Calc {
         {
             return lists::map(self, w, f, args);
         }
-        if let Some(r) = binary::over(self, w, args).or_else(|| array::over(w, args)) {
+        if let Some(r) = units::over(self, w, f, args)
+            .or_else(|| binary::over(self, w, args))
+            .or_else(|| array::over(w, args))
+        {
             return r;
         }
         f(self, args)
@@ -937,6 +951,7 @@ pub(crate) fn pure_any(w: &str) -> Option<(usize, OpFn)> {
         .or_else(|| binary::pure(w))
         .or_else(|| lists::pure(w))
         .or_else(|| more::pure(w))
+        .or_else(|| units::pure(w))
 }
 
 /// Commands that take a fixed number of arguments and only compute.
@@ -1111,6 +1126,7 @@ fn pure(w: &str) -> Option<(usize, OpFn)> {
                 Alg(_) => 9.0,
                 Bin(_) => 10.0,
                 Tag(..) => 12.0,
+                Unit(..) => 13.0,
                 Dir(_) => 15.0,
             };
             Ok(vec![Real(t)])

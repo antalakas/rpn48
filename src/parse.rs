@@ -3,6 +3,7 @@
 use crate::alg::{Expr, parse_alg};
 use crate::calc::{Error, Res};
 use crate::obj::{Base, Node, Obj, base, r12};
+use crate::units::{Units, parse_units};
 
 #[derive(Clone, Debug, PartialEq)]
 enum Tok {
@@ -12,6 +13,7 @@ enum Tok {
     Quoted(String),
     Alg(Expr),
     Bin(u64),
+    Unit(f64, Units),
     Tag(String),
     LBrack,
     RBrack,
@@ -198,17 +200,30 @@ fn tokenize(src: &str) -> Res<Vec<Tok>> {
             }
             _ => {
                 let start = i;
+                // Units after a number may have parentheses: 1_J/(kg*K).
+                let mut depth = 0;
                 while i < cs.len()
-                    && !is_delim(cs[i])
+                    && (depth > 0
+                        || !is_delim(cs[i])
+                        || (cs[i] == '(' && cs[start..i].contains(&'_')))
                     && !"}»]".contains(cs[i])
                     && !pair(i, "<<")
                     && !pair(i, ">>")
                 {
+                    match cs[i] {
+                        '(' => depth += 1,
+                        ')' => depth -= 1,
+                        _ => {}
+                    }
                     i += 1;
                 }
                 let w: String = cs[start..i].iter().collect();
                 if let Some(x) = parse_num(&w) {
                     out.push(Tok::Num(x));
+                } else if let Some((x, u)) = w.split_once('_')
+                    && let Some(x) = parse_num(x)
+                {
+                    out.push(Tok::Unit(x, parse_units(u).ok_or(Error::InvalidUnit)?));
                 } else if w.starts_with(|c: char| c.is_ascii_digit()) {
                     return Err(Error::Syntax);
                 } else {
@@ -413,6 +428,7 @@ impl Parser {
             Tok::Quoted(n) => Obj::Name(n),
             Tok::Alg(e) => Obj::Alg(e),
             Tok::Bin(n) => Obj::Bin(n),
+            Tok::Unit(x, u) => Obj::Unit(x, u),
             Tok::LBrace => self.list()?,
             Tok::LBrack => self.array()?,
             Tok::LProg => Obj::Prog(self.until(&["»"])?.0),

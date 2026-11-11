@@ -167,8 +167,8 @@ pub static ROWS: [&[Key]; 9] = [
         key("◀", Shift(Shift::Left), NONE, NONE),
         digit("4", ("TIME", Menu(Menu::Time))),
         digit("5", ("STAT", Menu(Menu::Stat))),
-        digit("6", no("UNITS")),
-        key("×", Op('*'), ("[ ]", Text("[]", 1)), ("_", Unsupported)),
+        digit("6", ("UNITS", Menu(Menu::Units))),
+        key("×", Op('*'), ("[ ]", Text("[]", 1)), ("_", Text("_", 0))),
     ],
     &[
         key("▶", Shift(Shift::Right), NONE, NONE),

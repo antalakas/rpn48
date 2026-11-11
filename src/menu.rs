@@ -3,6 +3,7 @@
 
 use crate::calc::Calc;
 use crate::obj::Obj;
+use crate::units::CATEGORIES;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Menu {
@@ -31,6 +32,9 @@ pub enum Menu {
     Stat,
     Symbolic,
     Time,
+    Units,
+    /// A category of the UNITS menu, by its place in units::CATEGORIES.
+    UnitCat(u8),
 }
 
 const MTH: &[&str] = &[
@@ -129,7 +133,7 @@ const TIME: &[&str] = &[
 ];
 
 impl Menu {
-    pub const ALL: [Menu; 25] = [
+    pub const ALL: [Menu; 26] = [
         Menu::Mth,
         Menu::Vectr,
         Menu::Matr,
@@ -155,6 +159,7 @@ impl Menu {
         Menu::Stat,
         Menu::Symbolic,
         Menu::Time,
+        Menu::Units,
     ];
 
     /// The menus on F7–F11.
@@ -187,6 +192,8 @@ impl Menu {
             Menu::Stat => "STAT",
             Menu::Symbolic => "SYMBOLIC",
             Menu::Time => "TIME",
+            Menu::Units => "UNITS",
+            Menu::UnitCat(i) => CATEGORIES[i as usize].0,
         }
     }
 
@@ -201,6 +208,10 @@ impl Menu {
     /// The menu a soft key labelled `label` opens, if it is a submenu here.
     /// TYPE is the PRG TYPE menu only in PRG; elsewhere it is the command.
     pub fn sub(self, label: &str) -> Option<Menu> {
+        if self == Menu::Units {
+            let i = CATEGORIES.iter().position(|(n, _)| *n == label)?;
+            return Some(Menu::UnitCat(i as u8));
+        }
         if label == "TYPE" && self != Menu::Prg {
             return None;
         }
@@ -232,6 +243,8 @@ impl Menu {
             Menu::Stat => STAT,
             Menu::Symbolic => SYMBOLIC,
             Menu::Time => TIME,
+            Menu::Units => &CATEGORIES.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+            Menu::UnitCat(i) => CATEGORIES[i as usize].1,
             Menu::Var => return calc.cur_vars().iter().map(|(n, _)| n.clone()).collect(),
             // The custom menu lists what the variable CST holds.
             Menu::Cst => {

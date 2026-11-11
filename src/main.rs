@@ -14,6 +14,7 @@ mod persist;
 mod stat;
 mod symbolic;
 mod ui;
+mod units;
 
 use std::io;
 use std::path::PathBuf;
@@ -222,10 +223,14 @@ impl App {
             Act::Unsupported => self.message = Some(format!("{label} is not supported")),
             Act::Soft(i) => self.soft_key(i),
             // In the VAR menu, left- and right-shifted soft keys store into
-            // and recall the variable; elsewhere they act unshifted.
+            // and recall the variable; in a units menu they convert to the unit
+            // and divide by it; elsewhere they act unshifted.
             Act::SoftSto(i) | Act::SoftRcl(i) => {
                 let name = self.calc.menu.page(&self.calc, self.calc.page)[i].clone();
-                if self.calc.menu == Menu::Var && !name.is_empty() {
+                if let (Menu::UnitCat(_), false) = (self.calc.menu, name.is_empty()) {
+                    let left = matches!(act, Act::SoftSto(_));
+                    self.unit_key(&name, if left { "CONVERT" } else { "/" });
+                } else if self.calc.menu == Menu::Var && !name.is_empty() {
                     let cmd = if matches!(act, Act::SoftSto(_)) {
                         "STO"
                     } else {
@@ -343,7 +348,18 @@ impl App {
         }
         match self.calc.menu.sub(&label) {
             Some(m) => (self.calc.menu, self.calc.page) = (m, 0),
+            None if matches!(self.calc.menu, Menu::UnitCat(_)) => self.unit_key(&label, "*"),
             None => self.command(&label),
+        }
+    }
+
+    // A unit's key gives the number on the line or stack those units; shifted,
+    // it converts to them (left) or divides by them (right).
+    fn unit_key(&mut self, unit: &str, cmd: &str) {
+        if cmd == "*" && self.line.is_empty() && self.calc.stack.is_empty() {
+            self.command(&format!("1_{unit}"));
+        } else {
+            self.command(&format!("1_{unit} {cmd}"));
         }
     }
 

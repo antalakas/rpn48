@@ -3,6 +3,7 @@
 use std::cell::Cell;
 
 use crate::alg::{Expr, write_expr};
+use crate::units::{Units, write_units};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Obj {
@@ -22,6 +23,8 @@ pub enum Obj {
     Tag(String, Box<Obj>),
     /// A subdirectory: its variables, newest first.
     Dir(Vec<(String, Obj)>),
+    /// A real with units, 9.8_m/s^2.
+    Unit(f64, Units),
 }
 
 /// The base binary integers are shown in, and read in when typed without
@@ -240,6 +243,11 @@ fn write_obj(out: &mut String, o: &Obj, fmt: Fmt, top: bool) {
                 write_obj(out, v, fmt, true);
             }
             out.push_str(" END");
+        }
+        Obj::Unit(x, u) => {
+            out.push_str(&fmt_real(*x, fmt));
+            out.push('_');
+            write_units(out, u);
         }
     }
 }
