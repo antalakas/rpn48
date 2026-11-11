@@ -324,45 +324,6 @@ pub fn colct(e: &Expr) -> Expr {
     out.unwrap_or(Num(0.0))
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::calc::Calc;
-
-    fn run(src: &str) -> Vec<String> {
-        let mut c = Calc::new();
-        c.exec_line(src).unwrap();
-        c.stack.iter().map(|o| o.show(c.fmt)).collect()
-    }
-
-    #[test]
-    fn rearranging() {
-        assert_eq!(run("'X^2-5*X+6' 'X' QUAD"), ["'X=(5+s1)/2'"]);
-        assert_eq!(run("'X^2-5*X+6' 'X' QUAD { s1 -1 } | EVAL"), ["'X=2'"]);
-        assert_eq!(run("'3*X-6' 'X' QUAD"), ["'X=2'"]);
-        assert_eq!(run("'2*X+3=7' 'X' ISOL"), ["'X=2'"]);
-        assert_eq!(run("'SIN(X)=.5' 'X' ISOL"), ["'X=30'"]);
-        assert_eq!(run("'A*X^2=B' 'X' ISOL"), ["'X=s1*√(B/A)'"]);
-        assert_eq!(run("'(X+1)^3' EXPAN"), ["'X^3+3*X^2+3*X+1'"]);
-        assert_eq!(run("'(A+B)*(A-B)' EXPAN"), ["'A^2-B^2'"]);
-        assert_eq!(run("'-(X-2)*3' EXPAN"), ["'-3*X+6'"]);
-        assert_eq!(
-            run("'X*X+X+X+1' COLCT 'Y+X' COLCT"),
-            ["'X^2+2*X+1'", "'X+Y'"]
-        );
-        assert_eq!(run("0 'Y' '3*X^2+2*X+1' 'X' ∫"), ["'Y^3+Y^2+Y'"]);
-        assert_eq!(run("RAD 0 'Y' 'SIN(X)' 'X' ∫"), ["'-COS(Y)+1'"]);
-        assert_eq!(
-            run("1 'Y' 'X^-2' 'X' ∫ 0 'Y' 'EXP(2*X)' 'X' ∫"),
-            ["'1-1/Y'", "'.5*EXP(2*Y)-.5'"]
-        );
-        assert_eq!(run("0 1 'X^2' 'X' ∫"), [".333333333333"]);
-        let mut c = Calc::new();
-        assert!(c.exec_line("0 'Y' 'X*EXP(X)' 'X' ∫").is_err());
-        assert!(c.exec_line("'X^2+X^2' 'X' ISOL").is_err());
-        assert!(c.exec_line("'X^3' 'X' QUAD").is_err());
-    }
-}
-
 impl Calc {
     /// The coefficient m when `u` is m·x + k, so that a function of u can be
     /// integrated as one of x divided by m.
@@ -467,5 +428,44 @@ impl Calc {
             .ok_or(Error::BadValue)?;
         let at = |v: &Expr| subst(&big, &[(x.to_string(), v.clone())]);
         Ok(self.collect(colct(&self.collect(op('-', at(hi), at(lo))))))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::calc::Calc;
+
+    fn run(src: &str) -> Vec<String> {
+        let mut c = Calc::new();
+        c.exec_line(src).unwrap();
+        c.stack.iter().map(|o| o.show(c.fmt)).collect()
+    }
+
+    #[test]
+    fn rearranging() {
+        assert_eq!(run("'X^2-5*X+6' 'X' QUAD"), ["'X=(5+s1)/2'"]);
+        assert_eq!(run("'X^2-5*X+6' 'X' QUAD { s1 -1 } | EVAL"), ["'X=2'"]);
+        assert_eq!(run("'3*X-6' 'X' QUAD"), ["'X=2'"]);
+        assert_eq!(run("'2*X+3=7' 'X' ISOL"), ["'X=2'"]);
+        assert_eq!(run("'SIN(X)=.5' 'X' ISOL"), ["'X=30'"]);
+        assert_eq!(run("'A*X^2=B' 'X' ISOL"), ["'X=s1*√(B/A)'"]);
+        assert_eq!(run("'(X+1)^3' EXPAN"), ["'X^3+3*X^2+3*X+1'"]);
+        assert_eq!(run("'(A+B)*(A-B)' EXPAN"), ["'A^2-B^2'"]);
+        assert_eq!(run("'-(X-2)*3' EXPAN"), ["'-3*X+6'"]);
+        assert_eq!(
+            run("'X*X+X+X+1' COLCT 'Y+X' COLCT"),
+            ["'X^2+2*X+1'", "'X+Y'"]
+        );
+        assert_eq!(run("0 'Y' '3*X^2+2*X+1' 'X' ∫"), ["'Y^3+Y^2+Y'"]);
+        assert_eq!(run("RAD 0 'Y' 'SIN(X)' 'X' ∫"), ["'-COS(Y)+1'"]);
+        assert_eq!(
+            run("1 'Y' 'X^-2' 'X' ∫ 0 'Y' 'EXP(2*X)' 'X' ∫"),
+            ["'1-1/Y'", "'.5*EXP(2*Y)-.5'"]
+        );
+        assert_eq!(run("0 1 'X^2' 'X' ∫"), [".333333333333"]);
+        let mut c = Calc::new();
+        assert!(c.exec_line("0 'Y' 'X*EXP(X)' 'X' ∫").is_err());
+        assert!(c.exec_line("'X^2+X^2' 'X' ISOL").is_err());
+        assert!(c.exec_line("'X^3' 'X' QUAD").is_err());
     }
 }
