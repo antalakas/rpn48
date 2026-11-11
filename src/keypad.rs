@@ -78,8 +78,12 @@ const fn key(
     }
 }
 
-const fn digit(face: &'static str, left: &'static str) -> Key {
-    key(face, Text(face, 0), (left, Unsupported), NONE)
+const fn digit(face: &'static str, left: (&'static str, Act)) -> Key {
+    key(face, Text(face, 0), left, NONE)
+}
+
+const fn no(label: &'static str) -> (&'static str, Act) {
+    (label, Unsupported)
 }
 
 const fn soft(i: usize) -> Key {
@@ -96,8 +100,8 @@ pub static ROWS: [&[Key]; 9] = [
             ("POLAR", Unsupported),
         ),
         key("PRG", Menu(Menu::Prg), ("CHARS", Unsupported), NONE),
-        key("CST", Unsupported, ("MODES", Menu(Menu::Modes)), NONE),
-        key("VAR", Menu(Menu::Var), ("MEMORY", Unsupported), NONE),
+        key("CST", Menu(Menu::Cst), ("MODES", Menu(Menu::Modes)), NONE),
+        key("VAR", Menu(Menu::Var), ("MEMORY", Menu(Menu::Memory)), NONE),
         key("▲", Up, ("STACK", Unsupported), NONE),
         key("NXT", NextPage, ("PREV", PrevPage), ("MENU", Unsupported)),
     ],
@@ -105,19 +109,24 @@ pub static ROWS: [&[Key]; 9] = [
         key(
             "'",
             Text("''", 1),
-            ("UP", Unsupported),
-            ("HOME", Unsupported),
+            ("UP", Cmd("UPDIR")),
+            ("HOME", Cmd("HOME")),
         ),
-        key("STO", Cmd("STO"), ("DEF", Unsupported), ("RCL", Cmd("RCL"))),
+        key(
+            "STO",
+            Cmd("STO"),
+            ("DEF", Cmd("DEFINE")),
+            ("RCL", Cmd("RCL")),
+        ),
         key("EVAL", Cmd("EVAL"), ("→NUM", Cmd("→NUM")), ("UNDO", Undo)),
         key("◀", Left, ("PICTURE", Unsupported), NONE),
         key("▼", Down, ("VIEW", Unsupported), NONE),
         key("▶", Right, ("SWAP", Cmd("SWAP")), NONE),
     ],
     &[
-        key("SIN", Cmd("SIN"), ("ASIN", Cmd("ASIN")), ("∂", Unsupported)),
-        key("COS", Cmd("COS"), ("ACOS", Cmd("ACOS")), ("∫", Unsupported)),
-        key("TAN", Cmd("TAN"), ("ATAN", Cmd("ATAN")), ("Σ", Unsupported)),
+        key("SIN", Cmd("SIN"), ("ASIN", Cmd("ASIN")), ("∂", Cmd("∂"))),
+        key("COS", Cmd("COS"), ("ACOS", Cmd("ACOS")), ("∫", Cmd("∫"))),
+        key("TAN", Cmd("TAN"), ("ATAN", Cmd("ATAN")), ("Σ", Cmd("Σ"))),
         key("√x", Cmd("√"), ("x²", Cmd("SQ")), ("ˣ√y", Cmd("XROOT"))),
         key("yˣ", Op('^'), ("10ˣ", Cmd("ALOG")), ("LOG", Cmd("LOG"))),
         key("1/x", Cmd("INV"), ("eˣ", Cmd("EXP")), ("LN", Cmd("LN"))),
@@ -137,7 +146,7 @@ pub static ROWS: [&[Key]; 9] = [
             "EEX",
             Text("E", 0),
             ("PURG", Cmd("PURGE")),
-            ("ARG", Unsupported),
+            ("ARG", Cmd("LASTARG")),
         ),
         key("DEL", Delete, ("CLEAR", Cmd("CLEAR")), NONE),
         key("←", Backspace, ("DROP", Cmd("DROP")), NONE),
@@ -149,23 +158,23 @@ pub static ROWS: [&[Key]; 9] = [
             ("USER", Unsupported),
             ("ENTRY", Unsupported),
         ),
-        digit("7", "SOLVE"),
-        digit("8", "PLOT"),
-        digit("9", "SYMBOLIC"),
-        key("÷", Op('/'), ("( )", Text("()", 1)), ("#", Unsupported)),
+        digit("7", no("SOLVE")),
+        digit("8", no("PLOT")),
+        digit("9", ("SYMBOLIC", Menu(Menu::Symbolic))),
+        key("÷", Op('/'), ("( )", Text("()", 1)), ("#", Text("#", 0))),
     ],
     &[
         key("◀", Shift(Shift::Left), NONE, NONE),
-        digit("4", "TIME"),
-        digit("5", "STAT"),
-        digit("6", "UNITS"),
-        key("×", Op('*'), ("[ ]", Unsupported), ("_", Unsupported)),
+        digit("4", ("TIME", Menu(Menu::Time))),
+        digit("5", ("STAT", Menu(Menu::Stat))),
+        digit("6", no("UNITS")),
+        key("×", Op('*'), ("[ ]", Text("[]", 1)), ("_", Unsupported)),
     ],
     &[
         key("▶", Shift(Shift::Right), NONE, NONE),
-        digit("1", "I/O"),
-        digit("2", "LIBRARY"),
-        digit("3", "EQ LIB"),
+        digit("1", no("I/O")),
+        digit("2", no("LIBRARY")),
+        digit("3", no("EQ LIB")),
         key(
             "-",
             Op('-'),
@@ -175,10 +184,15 @@ pub static ROWS: [&[Key]; 9] = [
     ],
     &[
         key("ON", Cancel, ("CONT", Unsupported), ("OFF", Off)),
-        key("0", Text("0", 0), ("=", Unsupported), ("→", Text("→ ", 0))),
+        key("0", Text("0", 0), ("=", Text("=", 0)), ("→", Text("→ ", 0))),
         key(".", Text(".", 0), (",", Text(",", 0)), ("↵", Unsupported)),
         key("SPC", Text(" ", 0), ("π", Cmd("π")), ("∠", Unsupported)),
-        key("+", Op('+'), ("{ }", Text("{  }", 2)), ("::", Unsupported)),
+        key(
+            "+",
+            Op('+'),
+            ("{ }", Text("{  }", 2)),
+            ("::", Text("::", 1)),
+        ),
     ],
 ];
 

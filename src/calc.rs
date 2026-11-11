@@ -4,9 +4,11 @@ use std::cmp::Ordering;
 use std::f64::consts::{E, PI};
 use std::fmt;
 
+use crate::alg::{self, SYMBOLIC, is_symbolic};
 use crate::menu::Menu;
-use crate::obj::{Fmt, Node, Obj, r12};
+use crate::obj::{Base, Fmt, Node, Obj, r12, set_base};
 use crate::parse::parse;
+use crate::{array, binary, lists, more};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -17,9 +19,15 @@ pub enum Error {
     UndefinedResult,
     Infinite,
     Syntax,
-    Algebraic,
+    Dim,
+    DirNotAllowed,
+    NonEmptyDir,
     Memory,
     Interrupted,
+    /// DOERR with a message of the program's own.
+    User(String),
+    /// DOERR with an error number that has no message here.
+    Code(u32),
     /// An error raised by a named command, reported as "SIN Error: ...".
     At(String, Box<Error>),
 }
@@ -34,13 +42,32 @@ impl fmt::Display for Error {
             Error::UndefinedResult => "Undefined Result",
             Error::Infinite => "Infinite Result",
             Error::Syntax => "Invalid Syntax",
-            Error::Algebraic => "Algebraic objects are not supported",
+            Error::Dim => "Invalid Dimension",
+            Error::DirNotAllowed => "Directory Not Allowed",
+            Error::NonEmptyDir => "Non-Empty Directory",
             Error::Memory => "Insufficient Memory",
             Error::Interrupted => "Interrupted",
+            Error::User(m) => m,
+            Error::Code(n) => return write!(f, "Error #{n:X}h"),
             Error::At(cmd, e) => return write!(f, "{cmd} Error: {e}"),
         })
     }
 }
+
+/// The calculator's error numbers, which ERRN returns and DOERR takes.
+const CODES: &[(u32, Error)] = &[
+    (0x001, Error::Memory),
+    (0x106, Error::Syntax),
+    (0x12A, Error::DirNotAllowed),
+    (0x12B, Error::NonEmptyDir),
+    (0x201, Error::TooFewArgs),
+    (0x202, Error::BadType),
+    (0x203, Error::BadValue),
+    (0x204, Error::Undefined),
+    (0x304, Error::UndefinedResult),
+    (0x305, Error::Infinite),
+    (0x501, Error::Dim),
+];
 
 impl Error {
     /// The message as the calculator shows it.
@@ -50,11 +77,35 @@ impl Error {
             e => format!("Error: {e}"),
         }
     }
+
+    pub fn number(&self) -> u32 {
+        match self {
+            Error::At(_, e) => e.number(),
+            Error::User(_) => 0x70000,
+            Error::Code(n) => *n,
+            e => CODES.iter().find(|(_, c)| c == e).map_or(0, |(n, _)| *n),
+        }
+    }
+
+    pub fn from_number(n: u32) -> Error {
+        CODES
+            .iter()
+            .find(|(c, _)| *c == n)
+            .map_or(Error::Code(n), |(_, e)| e.clone())
+    }
+
+    /// The error without the command that raised it, as ERRM reports it.
+    pub(crate) fn bare(&self) -> &Error {
+        match self {
+            Error::At(_, e) => e.bare(),
+            e => e,
+        }
+    }
 }
 
 pub type Res<T> = Result<T, Error>;
 
-fn at(cmd: &str, e: Error) -> Error {
+pub fn at(cmd: &str, e: Error) -> Error {
     match e {
         Error::At(..) | Error::Interrupted | Error::Memory => e,
         e => Error::At(cmd.into(), Box::new(e)),
@@ -83,8 +134,12 @@ impl Angle {
 pub struct Snapshot {
     stack: Vec<Obj>,
     vars: Vec<(String, Obj)>,
+    path: Vec<String>,
     angle: Angle,
     fmt: Fmt,
+    base: Base,
+    wordsize: u32,
+    flags: [u64; 2],
 }
 
 /// Nesting limit for programs and names that evaluate one another.
@@ -93,30 +148,57 @@ const MAX_DEPTH: usize = 400;
 pub struct Calc {
     /// Level 1 is the last element.
     pub stack: Vec<Obj>,
-    /// Global variables, newest first as the VAR menu lists them.
+    /// The HOME directory's variables, newest first as the VAR menu lists
+    /// them. Subdirectories are `Obj::Dir` values among them.
     pub vars: Vec<(String, Obj)>,
+    /// The current directory, as the names of the directories below HOME.
+    pub path: Vec<String>,
     pub angle: Angle,
     pub fmt: Fmt,
+    pub base: Base,
+    /// Binary integers are kept to this many bits (STWS), 1 to 64.
+    pub wordsize: u32,
+    /// User flags 1–64, then system flags -1 to -64.
+    pub flags: [u64; 2],
     pub menu: Menu,
     pub page: usize,
     /// Polled now and then while a program runs; true stops it.
     pub interrupt: Option<Box<dyn FnMut() -> bool>>,
-    locals: Vec<Vec<(String, Obj)>>,
+    /// The arguments of the last command, for LASTARG.
+    pub last_args: Vec<Obj>,
+    /// The last error, for ERRN and ERRM.
+    pub last_err: Option<Error>,
+    pub(crate) locals: Vec<Vec<(String, Obj)>>,
+    /// Set while →NUM runs, so that undefined names are an error.
+    pub(crate) numeric: bool,
+    /// The lists DOSUBS is working through, for NSUB and ENDSUB.
+    pub(crate) subs: Vec<(usize, usize)>,
+    pub(crate) seed: u64,
     depth: usize,
     steps: u64,
 }
 
 impl Calc {
     pub fn new() -> Self {
+        set_base(Base::Dec);
         Calc {
             stack: vec![],
             vars: vec![],
+            path: vec![],
             angle: Angle::Deg,
             fmt: Fmt::Std,
+            base: Base::Dec,
+            wordsize: 64,
+            flags: [0; 2],
             menu: Menu::Mth,
             page: 0,
             interrupt: None,
+            last_args: vec![],
+            last_err: None,
             locals: vec![],
+            numeric: false,
+            subs: vec![],
+            seed: 0,
             depth: 0,
             steps: 0,
         }
@@ -126,13 +208,24 @@ impl Calc {
         Snapshot {
             stack: self.stack.clone(),
             vars: self.vars.clone(),
+            path: self.path.clone(),
             angle: self.angle,
             fmt: self.fmt,
+            base: self.base,
+            wordsize: self.wordsize,
+            flags: self.flags,
         }
     }
 
     pub fn restore(&mut self, s: Snapshot) {
-        (self.stack, self.vars, self.angle, self.fmt) = (s.stack, s.vars, s.angle, s.fmt);
+        (self.stack, self.vars, self.path) = (s.stack, s.vars, s.path);
+        (self.angle, self.fmt, self.wordsize, self.flags) = (s.angle, s.fmt, s.wordsize, s.flags);
+        self.set_base(s.base);
+    }
+
+    pub fn set_base(&mut self, b: Base) {
+        self.base = b;
+        set_base(b);
     }
 
     #[cfg(test)]
@@ -191,17 +284,42 @@ impl Calc {
                     return Ok(());
                 }
             },
-            Node::Local { names, body } => {
-                if self.stack.len() < names.len() {
-                    return Err(at("→", Error::TooFewArgs));
+            Node::Local { names, body } => self.with_locals(names, |c| c.exec_nodes(body)),
+            Node::LocalAlg { names, expr } => self.with_locals(names, |c| c.eval_obj(expr.clone())),
+            Node::Case { clauses, default } => {
+                for (cond, body) in clauses {
+                    self.exec_nodes(cond)?;
+                    if self.pop_truth("CASE")? {
+                        return self.exec_nodes(body);
+                    }
                 }
-                let vals = self.stack.split_off(self.stack.len() - names.len());
-                self.locals.push(names.iter().cloned().zip(vals).collect());
-                let r = self.exec_nodes(body);
-                self.locals.pop();
-                r
+                self.exec_nodes(default)
             }
+            Node::IfErr { body, then, els } => match self.exec_nodes(body) {
+                Err(Error::Interrupted) => Err(Error::Interrupted),
+                Err(e) => {
+                    self.last_err = Some(e);
+                    self.exec_nodes(then)
+                }
+                Ok(()) => els.as_ref().map_or(Ok(()), |e| self.exec_nodes(e)),
+            },
         }
+    }
+
+    /// Runs `f` with `names` bound to objects taken from the stack.
+    pub(crate) fn with_locals(
+        &mut self,
+        names: &[String],
+        f: impl FnOnce(&mut Self) -> Res<()>,
+    ) -> Res<()> {
+        if self.stack.len() < names.len() {
+            return Err(at("→", Error::TooFewArgs));
+        }
+        let vals = self.stack.split_off(self.stack.len() - names.len());
+        self.locals.push(names.iter().cloned().zip(vals).collect());
+        let r = f(self);
+        self.locals.pop();
+        r
     }
 
     // START/FOR loops run the body at least once, then count to `end`;
@@ -250,14 +368,76 @@ impl Calc {
         slot.map(|(_, old)| *old = v).is_some()
     }
 
-    fn global(&self, name: &str) -> Option<&Obj> {
-        self.vars.iter().find(|(n, _)| n == name).map(|(_, v)| v)
+    /// The variables of the directory `depth` levels below HOME on the path.
+    pub fn dir_vars(&self, depth: usize) -> &Vec<(String, Obj)> {
+        let mut vars = &self.vars;
+        for name in &self.path[..depth] {
+            match vars.iter().find(|(n, _)| n == name) {
+                Some((_, Obj::Dir(v))) => vars = v,
+                _ => unreachable!("the path names directories"),
+            }
+        }
+        vars
+    }
+
+    pub fn cur_vars(&self) -> &Vec<(String, Obj)> {
+        self.dir_vars(self.path.len())
+    }
+
+    pub fn cur_vars_mut(&mut self) -> &mut Vec<(String, Obj)> {
+        let mut vars = &mut self.vars;
+        for name in &self.path {
+            match vars.iter_mut().find(|(n, _)| n == name) {
+                Some((_, Obj::Dir(v))) => vars = v,
+                _ => unreachable!("the path names directories"),
+            }
+        }
+        vars
+    }
+
+    /// A global variable, looked for in the current directory and then the
+    /// ones above it, with the depth of the directory it was found in.
+    pub(crate) fn find_global(&self, name: &str) -> Option<(usize, &Obj)> {
+        (0..=self.path.len()).rev().find_map(|d| {
+            self.dir_vars(d)
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, v)| (d, v))
+        })
+    }
+
+    pub(crate) fn global(&self, name: &str) -> Option<&Obj> {
+        self.find_global(name).map(|(_, v)| v)
+    }
+
+    /// Stores into the current directory, as STO does.
+    pub(crate) fn store(&mut self, name: String, v: Obj) -> Res<()> {
+        let vars = self.cur_vars_mut();
+        match vars.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, Obj::Dir(_))) => return Err(Error::DirNotAllowed),
+            Some((_, old)) => *old = v,
+            None => vars.insert(0, (name, v)),
+        }
+        Ok(())
+    }
+
+    // A global variable runs its value, except a directory, which becomes the
+    // current one.
+    fn run_global(&mut self, name: &str) -> Option<Res<()>> {
+        let (depth, v) = self.find_global(name)?;
+        if let Obj::Dir(_) = v {
+            self.path.truncate(depth);
+            self.path.push(name.into());
+            return Some(Ok(()));
+        }
+        let v = v.clone();
+        Some(self.nested(v))
     }
 
     // A word runs as a local variable, a built-in command or a global variable,
     // in that order. Commands also answer to lowercase ("sin") when no variable
     // has that name. A word that is none of these is pushed as a name.
-    fn eval_word(&mut self, w: &str) -> Res<()> {
+    pub(crate) fn eval_word(&mut self, w: &str) -> Res<()> {
         if let Some(v) = self.local(w) {
             self.stack.push(v.clone());
             return Ok(());
@@ -265,14 +445,22 @@ impl Calc {
         if let Some(r) = self.builtin(w) {
             return r.map_err(|e| at(w, e));
         }
-        if let Some(v) = self.global(w) {
-            return self.nested(v.clone());
+        if let Some(r) = self.run_global(w) {
+            return r;
         }
         let up = w.to_uppercase();
         if up != w
             && let Some(r) = self.builtin(&up)
         {
             return r.map_err(|e| at(&up, e));
+        }
+        self.undefined(w)
+    }
+
+    /// An undefined name evaluates to itself, except under →NUM.
+    fn undefined(&mut self, w: &str) -> Res<()> {
+        if self.numeric {
+            return Err(Error::Undefined);
         }
         self.stack.push(Obj::Name(w.into()));
         Ok(())
@@ -288,19 +476,28 @@ impl Calc {
         r
     }
 
-    fn eval_obj(&mut self, o: Obj) -> Res<()> {
+    pub(crate) fn eval_obj(&mut self, o: Obj) -> Res<()> {
         match o {
             Obj::Prog(nodes) => self.exec_nodes(&nodes),
             Obj::Name(n) => {
                 if let Some(v) = self.local(&n) {
                     self.stack.push(v.clone());
-                } else if let Some(v) = self.global(&n) {
-                    return self.nested(v.clone());
+                    Ok(())
+                } else if let Some(r) = self.run_global(&n) {
+                    r
+                } else if let Some(r) = self.numeric.then(|| constant(&n)).flatten() {
+                    self.stack.push(r);
+                    Ok(())
                 } else {
-                    self.stack.push(Obj::Name(n));
+                    self.undefined(&n)
                 }
-                Ok(())
             }
+            Obj::Alg(e) => {
+                let mut nodes = vec![];
+                alg::to_nodes(&e, &mut nodes);
+                self.exec_nodes(&nodes)
+            }
+            Obj::Tag(_, o) => self.eval_obj(*o),
             Obj::List(items) => {
                 for it in items {
                     match it {
@@ -317,7 +514,7 @@ impl Calc {
         }
     }
 
-    fn need(&self, n: usize) -> Res<()> {
+    pub(crate) fn need(&self, n: usize) -> Res<()> {
         if self.stack.len() < n {
             Err(Error::TooFewArgs)
         } else {
@@ -325,15 +522,15 @@ impl Calc {
         }
     }
 
-    fn peek(&self, level: usize) -> &Obj {
+    pub(crate) fn peek(&self, level: usize) -> &Obj {
         &self.stack[self.stack.len() - level]
     }
 
-    fn pop(&mut self) -> Res<Obj> {
+    pub(crate) fn pop(&mut self) -> Res<Obj> {
         self.stack.pop().ok_or(Error::TooFewArgs)
     }
 
-    fn pop_real(&mut self, cmd: &str) -> Res<f64> {
+    pub(crate) fn pop_real(&mut self, cmd: &str) -> Res<f64> {
         self.need(1).map_err(|e| at(cmd, e))?;
         match self.peek(1) {
             Obj::Real(x) => {
@@ -363,7 +560,7 @@ impl Calc {
 
     /// Takes a count n from level 1 for a command that then needs n more
     /// objects, checking both before anything is removed.
-    fn pop_count(&mut self, extra: usize) -> Res<usize> {
+    pub(crate) fn pop_count(&mut self, extra: usize) -> Res<usize> {
         self.need(1)?;
         let Obj::Real(x) = *self.peek(1) else {
             return Err(Error::BadType);
@@ -377,23 +574,27 @@ impl Calc {
         Ok(n)
     }
 
-    fn pop_name(&mut self) -> Res<String> {
-        self.need(1)?;
-        let Obj::Name(n) = self.peek(1) else {
-            return Err(Error::BadType);
-        };
-        let n = n.clone();
-        self.stack.pop();
-        Ok(n)
-    }
-
     /// Runs `w` if it is a built-in command.
     fn builtin(&mut self, w: &str) -> Option<Res<()>> {
-        if let Some((n, f)) = pure(w) {
-            return Some(self.apply(n, f));
+        if let Some((n, f)) = pure_any(w) {
+            return Some(self.apply(w, n, f));
+        }
+        if let Some(r) = self
+            .symbolic_cmd(w)
+            .or_else(|| self.lists_cmd(w))
+            .or_else(|| self.stat_cmd(w))
+            .or_else(|| self.more_cmd(w))
+        {
+            return Some(r);
         }
         Some(match w {
-            "EVAL" | "→NUM" => self.pop().and_then(|o| self.eval_obj(o)),
+            "EVAL" => self.pop().and_then(|o| self.eval_obj(o)),
+            "→NUM" => self.pop().and_then(|o| {
+                let was = std::mem::replace(&mut self.numeric, true);
+                let r = self.eval_obj(o);
+                self.numeric = was;
+                r
+            }),
             "IFT" => self.need(2).and_then(|_| {
                 let Obj::Real(c) = *self.peek(2) else {
                     return Err(Error::BadType);
@@ -425,6 +626,17 @@ impl Calc {
                     Ok(())
                 }
                 Obj::Str(_) => self.str_eval(),
+                Obj::Tag(t, o) => {
+                    self.stack.pop();
+                    self.stack.extend([*o, Obj::Str(t)]);
+                    Ok(())
+                }
+                Obj::Vect(_) | Obj::Mat(_) => self.eval_word("ARRY→"),
+                Obj::Alg(alg::Expr::Op('=', a, b)) => {
+                    self.stack.pop();
+                    self.stack.extend([alg::to_obj(*a), alg::to_obj(*b)]);
+                    Ok(())
+                }
                 _ => Err(Error::BadType),
             }),
             "LIST→" => self.need(1).and_then(|_| {
@@ -477,14 +689,14 @@ impl Calc {
                 Ok(())
             }
             "STO" => self.need(2).and_then(|_| {
-                let name = self.pop_name()?;
-                let v = self.pop()?;
+                let Obj::Name(name) = self.peek(1).clone() else {
+                    return Err(Error::BadType);
+                };
+                let v = self.peek(2).clone();
                 if !self.set_local(&name, v.clone()) {
-                    match self.vars.iter_mut().find(|(n, _)| *n == name) {
-                        Some((_, old)) => *old = v,
-                        None => self.vars.insert(0, (name, v)),
-                    }
+                    self.store(name, v)?;
                 }
+                self.stack.truncate(self.stack.len() - 2);
                 Ok(())
             }),
             "RCL" => self.need(1).and_then(|_| {
@@ -515,13 +727,20 @@ impl Calc {
                         .collect(),
                     _ => return Err(Error::BadType),
                 };
+                let vars = self.cur_vars();
+                if vars
+                    .iter()
+                    .any(|(n, v)| names.contains(n) && matches!(v, Obj::Dir(d) if !d.is_empty()))
+                {
+                    return Err(Error::NonEmptyDir);
+                }
                 self.stack.pop();
-                self.vars.retain(|(n, _)| !names.contains(n));
+                self.cur_vars_mut().retain(|(n, _)| !names.contains(n));
                 Ok(())
             }),
             "VARS" => {
                 let names = self
-                    .vars
+                    .cur_vars()
                     .iter()
                     .map(|(n, _)| Obj::Name(n.clone()))
                     .collect();
@@ -572,12 +791,15 @@ impl Calc {
 
     // A command with a fixed number of arguments: they are taken off the stack,
     // and put back if the command fails, as the calculator does.
-    fn apply(&mut self, n: usize, f: OpFn) -> Res<()> {
+    fn apply(&mut self, w: &str, n: usize, f: OpFn) -> Res<()> {
         self.need(n)?;
         let args = self.stack.split_off(self.stack.len() - n);
-        match f(self, &args) {
+        match self.compute(w, f, &args) {
             Ok(out) => {
                 self.stack.extend(out);
+                if n > 0 {
+                    self.last_args = args;
+                }
                 Ok(())
             }
             Err(e) => {
@@ -587,14 +809,42 @@ impl Calc {
         }
     }
 
-    fn str_of(&self, o: &Obj) -> String {
+    /// What command `w` gives for `args`. Tags are dropped from arguments,
+    /// names and algebraics give an expression, and math applied to lists
+    /// applies to each element, as on the HP 48G.
+    pub(crate) fn compute(&self, w: &str, f: OpFn, args: &[Obj]) -> Res<Vec<Obj>> {
+        if !KEEP_TAGS.contains(&w) && args.iter().any(|a| matches!(a, Obj::Tag(..))) {
+            let bare: Vec<Obj> = args.iter().map(untag).collect();
+            return self.compute(w, f, &bare);
+        }
+        if SYMBOLIC.contains(&w)
+            && args.iter().any(is_symbolic)
+            && args
+                .iter()
+                .all(|a| matches!(a, Obj::Real(_)) || is_symbolic(a))
+        {
+            return Ok(vec![Obj::Alg(alg::build(w, args)?)]);
+        }
+        if w != "+"
+            && (SYMBOLIC.contains(&w) || lists::MAPPED.contains(&w))
+            && args.iter().any(|a| matches!(a, Obj::List(_)))
+        {
+            return lists::map(self, w, f, args);
+        }
+        if let Some(r) = binary::over(self, w, args).or_else(|| array::over(w, args)) {
+            return r;
+        }
+        f(self, args)
+    }
+
+    pub(crate) fn str_of(&self, o: &Obj) -> String {
         match o {
             Obj::Str(s) => s.clone(),
             o => o.show(self.fmt),
         }
     }
 
-    fn angle_to_rad(&self, x: f64) -> f64 {
+    pub(crate) fn angle_to_rad(&self, x: f64) -> f64 {
         match self.angle {
             Angle::Deg => x.to_radians(),
             Angle::Rad => x,
@@ -602,7 +852,7 @@ impl Calc {
         }
     }
 
-    fn rad_to_angle(&self, x: f64) -> f64 {
+    pub(crate) fn rad_to_angle(&self, x: f64) -> f64 {
         match self.angle {
             Angle::Deg => x.to_degrees(),
             Angle::Rad => x,
@@ -652,10 +902,41 @@ impl Calc {
     }
 }
 
-type OpFn = fn(&Calc, &[Obj]) -> Res<Vec<Obj>>;
+pub type OpFn = fn(&Calc, &[Obj]) -> Res<Vec<Obj>>;
 
-fn op(n: usize, f: OpFn) -> Option<(usize, OpFn)> {
+pub fn op(n: usize, f: OpFn) -> Option<(usize, OpFn)> {
     Some((n, f))
+}
+
+/// Commands that see tagged objects as they are, rather than their contents.
+const KEEP_TAGS: &[&str] = &[
+    "DUP", "DROP", "SWAP", "OVER", "ROT", "DUP2", "DROP2", "TYPE", "SAME", "==", "≠", "→STR",
+    "DTAG", "→TAG",
+];
+
+fn untag(o: &Obj) -> Obj {
+    match o {
+        Obj::Tag(_, o) => untag(o),
+        o => o.clone(),
+    }
+}
+
+/// The constants →NUM gives a value for.
+fn constant(n: &str) -> Option<Obj> {
+    match n {
+        "π" => Some(Obj::Real(PI)),
+        "e" => Some(Obj::Real(E)),
+        _ => None,
+    }
+}
+
+/// Every command that takes a fixed number of arguments and only computes.
+pub(crate) fn pure_any(w: &str) -> Option<(usize, OpFn)> {
+    pure(w)
+        .or_else(|| array::pure(w))
+        .or_else(|| binary::pure(w))
+        .or_else(|| lists::pure(w))
+        .or_else(|| more::pure(w))
 }
 
 /// Commands that take a fixed number of arguments and only compute.
@@ -671,30 +952,10 @@ fn pure(w: &str) -> Option<(usize, OpFn)> {
         "DROP2" => op(2, |_, _| Ok(vec![])),
 
         "+" => op(2, |c, a| one(c.add(&a[0], &a[1]))),
-        "-" => op(2, |_, a| {
-            one(arith(
-                &a[0],
-                &a[1],
-                |x, y| real(x - y),
-                |x, y| cplx(x.sub(y)),
-            ))
-        }),
-        "*" => op(2, |_, a| {
-            one(arith(
-                &a[0],
-                &a[1],
-                |x, y| real(x * y),
-                |x, y| cplx(x.mul(y)),
-            ))
-        }),
-        "/" => op(2, |_, a| {
-            one(arith(
-                &a[0],
-                &a[1],
-                |x, y| if y == 0.0 { Err(div0(x)) } else { real(x / y) },
-                |x, y| cplx(x.div(y)?),
-            ))
-        }),
+        "-" => op(2, |c, a| one(c.num2('-', &a[0], &a[1]))),
+        "*" => op(2, |c, a| one(c.num2('*', &a[0], &a[1]))),
+        "/" => op(2, |c, a| one(c.num2('/', &a[0], &a[1]))),
+        "=" => op(2, |_, a| Ok(vec![Obj::Alg(alg::build("=", a)?)])),
         "^" => op(2, |_, a| {
             one(arith(&a[0], &a[1], real_pow, |x, y| cplx(x.pow(y)?)))
         }),
@@ -846,6 +1107,11 @@ fn pure(w: &str) -> Option<(usize, OpFn)> {
                 List(_) => 5.0,
                 Name(_) => 6.0,
                 Prog(_) => 8.0,
+                Vect(_) | Mat(_) => 3.0,
+                Alg(_) => 9.0,
+                Bin(_) => 10.0,
+                Tag(..) => 12.0,
+                Dir(_) => 15.0,
             };
             Ok(vec![Real(t)])
         }),
@@ -853,6 +1119,12 @@ fn pure(w: &str) -> Option<(usize, OpFn)> {
         "SIZE" => op(1, |_, a| match &a[0] {
             Str(s) => Ok(vec![Real(s.chars().count() as f64)]),
             List(l) => Ok(vec![Real(l.len() as f64)]),
+            Vect(v) => Ok(vec![List(vec![Real(v.len() as f64)])]),
+            Mat(m) => Ok(vec![List(vec![
+                Real(m.len() as f64),
+                Real(m[0].len() as f64),
+            ])]),
+            Alg(_) | Name(_) => Ok(vec![Real(1.0)]),
             _ => Err(Error::BadType),
         }),
         "HEAD" => op(1, |_, a| match &a[0] {
@@ -872,6 +1144,10 @@ fn pure(w: &str) -> Option<(usize, OpFn)> {
         }),
         "GET" => op(2, |_, a| match (&a[0], &a[1]) {
             (List(l), Real(i)) => Ok(vec![l[index(*i, l.len())?].clone()]),
+            (List(l), List(i)) if i.len() == 1 => {
+                Ok(vec![l[index(real_of(&i[0])?, l.len())?].clone()])
+            }
+            (Vect(_) | Mat(_), _) => one(array::get(&a[0], &a[1])),
             _ => Err(Error::BadType),
         }),
         "PUT" => op(3, |_, a| match (&a[0], &a[1]) {
@@ -881,6 +1157,7 @@ fn pure(w: &str) -> Option<(usize, OpFn)> {
                 l[i] = a[2].clone();
                 Ok(vec![List(l)])
             }
+            (Vect(_) | Mat(_), _) => one(array::put(&a[0], &a[1], &a[2])),
             _ => Err(Error::BadType),
         }),
         "SUB" => op(3, |_, a| {
@@ -915,13 +1192,33 @@ impl Calc {
             (o, List(y)) => List([std::slice::from_ref(o), y.as_slice()].concat()),
             (Str(s), o) => Str(s.clone() + &self.str_of(o)),
             (o, Str(s)) => Str(self.str_of(o) + s),
-            _ => return arith(a, b, |x, y| real(x + y), |x, y| cplx(x.add(y))),
+            _ => return self.num2('+', a, b),
         })
+    }
+
+    /// + - * / on numbers, binary integers and arrays.
+    pub(crate) fn num2(&self, o: char, a: &Obj, b: &Obj) -> Res<Obj> {
+        use Obj::*;
+        match (a, b) {
+            (Bin(_), _) | (_, Bin(_)) => binary::arith(self, o, a, b),
+            (Vect(_) | Mat(_), _) | (_, Vect(_) | Mat(_)) => array::arith(o, a, b),
+            _ => match o {
+                '+' => arith(a, b, |x, y| real(x + y), |x, y| cplx(x.add(y))),
+                '-' => arith(a, b, |x, y| real(x - y), |x, y| cplx(x.sub(y))),
+                '*' => arith(a, b, |x, y| real(x * y), |x, y| cplx(x.mul(y))),
+                _ => arith(
+                    a,
+                    b,
+                    |x, y| if y == 0.0 { Err(div0(x)) } else { real(x / y) },
+                    |x, y| cplx(x.div(y)?),
+                ),
+            },
+        }
     }
 }
 
 /// A computed real, checked and rounded to the calculator's 12 digits.
-fn real(x: f64) -> Res<Obj> {
+pub(crate) fn real(x: f64) -> Res<Obj> {
     if x.is_nan() {
         Err(Error::UndefinedResult)
     } else if x.is_infinite() {
@@ -938,15 +1235,15 @@ fn cplx(z: C) -> Res<Obj> {
     Ok(Obj::Complex(re, im))
 }
 
-fn one(o: Res<Obj>) -> Res<Vec<Obj>> {
+pub(crate) fn one(o: Res<Obj>) -> Res<Vec<Obj>> {
     o.map(|o| vec![o])
 }
 
-fn truth(b: bool) -> Obj {
+pub(crate) fn truth(b: bool) -> Obj {
     Obj::Real(if b { 1.0 } else { 0.0 })
 }
 
-fn div0(x: f64) -> Error {
+pub(crate) fn div0(x: f64) -> Error {
     if x == 0.0 {
         Error::UndefinedResult
     } else {
@@ -954,7 +1251,7 @@ fn div0(x: f64) -> Error {
     }
 }
 
-fn real_of(o: &Obj) -> Res<f64> {
+pub(crate) fn real_of(o: &Obj) -> Res<f64> {
     match o {
         Obj::Real(x) => Ok(*x),
         _ => Err(Error::BadType),
@@ -969,11 +1266,11 @@ fn as_num(o: &Obj) -> Option<C> {
     }
 }
 
-fn real1(a: &Obj, f: fn(f64) -> f64) -> Res<Vec<Obj>> {
+pub(crate) fn real1(a: &Obj, f: fn(f64) -> f64) -> Res<Vec<Obj>> {
     one(real(f(real_of(a)?)))
 }
 
-fn real2(a: &[Obj], f: fn(f64, f64) -> f64) -> Res<Vec<Obj>> {
+pub(crate) fn real2(a: &[Obj], f: fn(f64, f64) -> f64) -> Res<Vec<Obj>> {
     one(real(f(real_of(&a[0])?, real_of(&a[1])?)))
 }
 
@@ -1025,7 +1322,7 @@ fn real_pow(x: f64, y: f64) -> Res<Obj> {
     }
 }
 
-fn fact(x: f64) -> Res<Obj> {
+pub(crate) fn fact(x: f64) -> Res<Obj> {
     if x < 0.0 && x.fract() == 0.0 {
         Err(Error::Infinite)
     } else if x.fract() == 0.0 && x <= 170.0 {
@@ -1036,7 +1333,7 @@ fn fact(x: f64) -> Res<Obj> {
 }
 
 // Lanczos approximation (g = 7), for factorials of non-integers.
-fn gamma(x: f64) -> f64 {
+pub(crate) fn gamma(x: f64) -> f64 {
     if x < 0.5 {
         return PI / ((PI * x).sin() * gamma(1.0 - x));
     }
@@ -1064,7 +1361,7 @@ fn equal(a: &Obj, b: &Obj) -> bool {
     }
 }
 
-fn compare(a: &[Obj]) -> Res<Ordering> {
+pub(crate) fn compare(a: &[Obj]) -> Res<Ordering> {
     match (&a[0], &a[1]) {
         (Obj::Real(x), Obj::Real(y)) => x.partial_cmp(y).ok_or(Error::BadValue),
         (Obj::Str(x), Obj::Str(y)) => Ok(x.cmp(y)),
@@ -1080,7 +1377,7 @@ fn logic(a: &[Obj], f: fn(bool, bool) -> bool) -> Res<Vec<Obj>> {
 }
 
 /// A 1-based list position.
-fn index(i: f64, len: usize) -> Res<usize> {
+pub(crate) fn index(i: f64, len: usize) -> Res<usize> {
     if i.fract() == 0.0 && i >= 1.0 && i <= len as f64 {
         Ok(i as usize - 1)
     } else {
@@ -1249,7 +1546,12 @@ mod tests {
 
     #[test]
     fn runaway_recursion_is_an_error() {
-        assert_eq!(err("« R » 'R' STO R").0, "Error: Insufficient Memory");
+        // The interpreter recurses too; give it the stack main gives it.
+        let t = std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(|| err("« R » 'R' STO R").0)
+            .unwrap();
+        assert_eq!(t.join().unwrap(), "Error: Insufficient Memory");
     }
 
     #[test]

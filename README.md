@@ -6,7 +6,7 @@ than emulating the calculator, so it needs no ROM.
 
 ```
 ╭ rpn48 ───────────────────────────────────────────╮
-│{ HOME }                                  DEG  STD│
+│{ HOME }                             DEG  DEC  STD│
 │6:                                                │
 │5:                                                │
 │4:                                                │
@@ -14,7 +14,7 @@ than emulating the calculator, so it needs no ROM.
 │2:                                           (0,2)│
 │1:                             « → a b « a b * » »│
 │  ABS    SIGN     IP      FP     FLOOR   CEIL     │
-╰ MTH 1/7 · Tab more · ^E edit · ^Z undo · ^Q quit ╯
+╰ REAL 1/4 · Tab more · ^E edit · ^Z undo · ^Q quit╯
 ```
 
 ## Running
@@ -70,19 +70,50 @@ variable has that name.
 
 - **Objects:** reals (12 significant digits, as on the calculator, so
   `.1 .2 + .3 ==` is true), complex numbers `(1,2)`, strings, names `'X'`,
-  lists `{ 1 2 }` and programs `« … »`.
-- **Math:** `+ - * / ^ NEG INV SQ √ ABS SIGN IP FP FLOOR CEIL MOD MIN MAX % %CH %T !`,
-  trigonometry and its inverses in DEG/RAD/GRAD, hyperbolics,
-  `LN LOG EXP ALOG LNP1 EXPM`, `π e`, and complex `R→C C→R RE IM CONJ ARG`.
-  Square roots, logs and fractional powers of negative numbers give complex
-  results.
-- **Stack:** `DUP SWAP DROP OVER ROT PICK ROLL ROLLD DUP2 DROP2 DUPN DROPN DEPTH CLEAR`.
-- **Programs:** `IF THEN ELSE END`, `START NEXT/STEP`, `FOR i NEXT/STEP`,
-  `WHILE REPEAT END`, `DO UNTIL END`, local variables `→ a b « … »`,
-  `EVAL IFT IFTE`, and comparisons and logic `== ≠ < > ≤ ≥ SAME AND OR XOR NOT`.
-- **Variables:** `STO RCL PURGE VARS`; the VAR menu runs or recalls them.
-- **Strings and lists:** `+` joins, `SIZE GET PUT HEAD TAIL SUB →LIST LIST→ OBJ→ →STR STR→ TYPE`.
+  algebraics `'X^2+1'`, binary integers `# FFh`, vectors `[ 1 2 3 ]` and
+  matrices `[[ 1 2 ] [ 3 4 ]]`, lists `{ 1 2 }`, programs `« … »`, tagged
+  objects `:A:5` and directories.
+- **Math:** `+ - * / ^ NEG INV SQ √ XROOT ABS SIGN IP FP FLOOR CEIL MOD MIN MAX % %CH %T !`,
+  `RND TRNC MANT XPON`, trigonometry and its inverses in DEG/RAD/GRAD,
+  hyperbolics, `LN LOG EXP ALOG LNP1 EXPM`, `π e`, complex
+  `R→C C→R RE IM CONJ ARG`, hours-minutes-seconds `→HMS HMS→ HMS+ HMS-`, and
+  `COMB PERM RAND RDZ`. Square roots, logs and fractional powers of negative
+  numbers give complex results.
+- **Algebraics:** math on names and algebraics builds expressions (`'X' 2 +`
+  is `'X+2'`), `EVAL` substitutes variables, `→NUM` insists on a number.
+  `∂` differentiates, `∫` integrates numerically, `Σ` sums, `ROOT` finds
+  roots, `|` substitutes, `TAYLR` gives Taylor polynomials, `COLCT` folds
+  numbers, `→Q` turns a real into a fraction, `EQ→` splits an equation, and
+  `DEFINE` makes user-defined functions: `'F(X)=X^2+1' DEFINE 'F(3)' EVAL` is 10.
+- **Arrays:** `+ - *` and `/` (which solves `B A /` for A·X = B),
+  `DET INV TRN DOT CROSS ABS IDN CON RDM RNRM CNRM TRACE →ARRY ARRY→ V→ →V2 →V3`,
+  and `GET PUT SIZE`.
+- **Binary integers:** `HEX DEC OCT BIN`, word size `STWS RCWS`,
+  `R→B B→R`, bitwise `AND OR XOR NOT`, shifts and rotations
+  `SL SR SLB SRB ASR RL RR RLB RRB`.
+- **Lists:** math applies to each element as on the 48G (`{ 1 2 } 10 *` is
+  `{ 10 20 }`, `{ 0 90 } SIN` is `{ 0 1 }`), and
+  `DOLIST DOSUBS NSUB ENDSUB SEQ STREAM REVLIST SORT ΣLIST ΠLIST ΔLIST ADD POS`.
+- **Strings and lists:** `+` joins, `SIZE GET PUT HEAD TAIL SUB REPL POS NUM CHR →LIST LIST→ OBJ→ →STR STR→ TYPE`.
+- **Stack:** `DUP SWAP DROP OVER ROT PICK ROLL ROLLD DUP2 DROP2 DUPN DROPN DEPTH CLEAR LASTARG`.
+- **Programs:** `IF THEN ELSE END`, `CASE … THEN … END … END`,
+  `IFERR THEN ELSE END` with `ERRN ERRM ERR0 DOERR`, `START NEXT/STEP`,
+  `FOR i NEXT/STEP`, `WHILE REPEAT END`, `DO UNTIL END`, local variables
+  `→ a b « … »` and `→ x 'x^2'`, `EVAL IFT IFTE`, comparisons and logic
+  `== ≠ < > ≤ ≥ SAME AND OR XOR NOT`, tags `→TAG DTAG`, and flags
+  `SF CF FS? FC? FS?C FC?C`.
+- **Variables and directories:** `STO RCL PURGE VARS`, `STO+ STO- STO* STO/ INCR DECR`,
+  `CRDIR PGDIR UPDIR HOME PATH`; names are looked up in the current
+  directory and then those above it. The VAR menu runs or recalls variables
+  and enters directories, and CST shows the list in the variable `CST`.
+- **Statistics:** on the matrix `ΣDAT`, `Σ+ Σ- CLΣ NΣ TOT MEAN SDEV VAR MAXΣ MINΣ`,
+  and on its `XCOL`/`YCOL` columns `LR PREDY PREDX CORR COV ΣX ΣY ΣX2 ΣY2 ΣXY`.
+- **Time:** `TIME DATE TICKS`.
 - **Display:** `STD`, `n FIX`, `n SCI`, `n ENG`.
+
+The menus follow the calculator's: MTH leads to VECTR, MATR, LIST, HYP,
+REAL, BASE, PROB and CMPL, PRG to BRCH, TEST, TYPE, LIST and ERROR, and the
+keyboard's shifted keys open STAT, SYMBOLIC, TIME and MEMORY.
 
 As on the calculator, a failed command puts its arguments back and reports
 `SIN Error: Bad Argument Type` and the like.
@@ -96,9 +127,10 @@ For example, a recursive factorial:
 
 ## Not there (yet)
 
-Algebraic objects (`'X^2+1'`) and symbolic math, units, matrices and arrays,
-binary integers, directories, plotting, the equation solver, and the
-calculator's I/O.
+Units, complex arrays, symbolic integration and equation rearranging
+(`ISOL`, `QUAD`, `EXPAN`), polar display, plotting, the solver and matrix
+writer applications, graphics objects, `HALT`/`CONT`, `INPUT`/`PROMPT`, and
+the calculator's I/O.
 
 ## License
 

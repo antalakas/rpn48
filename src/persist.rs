@@ -1,15 +1,16 @@
 //! Continuous memory: the stack, variables and modes, kept between runs.
 //!
 //! The file is calculator input: three lists, for the stack (level 1 last),
-//! the variables as name/value pairs, and the modes. STD formatting writes all
-//! 12 digits a real holds, so everything reads back exactly.
+//! the variables as name/value pairs (subdirectories as DIR … END), and the
+//! modes. STD formatting writes all 12 digits a real holds, and binary
+//! integers carry their base, so everything reads back exactly.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::calc::{Angle, Calc};
-use crate::obj::{Fmt, Node, Obj};
+use crate::obj::{Base, Fmt, Node, Obj};
 use crate::parse::parse;
 
 /// $XDG_DATA_HOME/rpn48/memory, or ~/.local/share/rpn48/memory.
@@ -37,6 +38,11 @@ pub fn save(calc: &Calc, path: &Path) -> io::Result<()> {
         Obj::Str(calc.angle.name().into()),
         Obj::Str(kind.into()),
         Obj::Real(digits as f64),
+        Obj::Str(calc.base.name().into()),
+        Obj::Real(calc.wordsize as f64),
+        Obj::Bin(calc.flags[0]),
+        Obj::Bin(calc.flags[1]),
+        Obj::List(calc.path.iter().map(|d| Obj::Name(d.clone())).collect()),
     ];
     let text = [
         Obj::List(calc.stack.clone()),
@@ -76,7 +82,8 @@ pub fn load(calc: &mut Calc, path: &Path) -> Result<(), String> {
         };
         pairs.push((n.clone(), v.clone()));
     }
-    let [Obj::Str(angle), Obj::Str(kind), Obj::Real(n)] = &modes[..] else {
+    // Memory from before binary integers and directories has only the first three.
+    let [Obj::Str(angle), Obj::Str(kind), Obj::Real(n), more @ ..] = &modes[..] else {
         return Err("bad modes".into());
     };
     let n = *n as u8;
@@ -93,6 +100,35 @@ pub fn load(calc: &mut Calc, path: &Path) -> Result<(), String> {
     };
     calc.stack = stack.clone();
     calc.vars = pairs;
+    if let [
+        Obj::Str(base),
+        Obj::Real(ws),
+        Obj::Bin(user),
+        Obj::Bin(sys),
+        Obj::List(path),
+    ] = more
+    {
+        calc.set_base(match base.as_str() {
+            "HEX" => Base::Hex,
+            "OCT" => Base::Oct,
+            "BIN" => Base::Bin,
+            _ => Base::Dec,
+        });
+        calc.wordsize = (*ws as u32).clamp(1, 64);
+        calc.flags = [*user, *sys];
+        // Follow the path as far as it still names directories.
+        for d in path {
+            let Obj::Name(d) = d else { break };
+            if !calc
+                .cur_vars()
+                .iter()
+                .any(|(n, o)| n == d && matches!(o, Obj::Dir(_)))
+            {
+                break;
+            }
+            calc.path.push(d.clone());
+        }
+    }
     Ok(())
 }
 
@@ -107,6 +143,8 @@ mod tests {
         let mut c = Calc::new();
         c.exec_line("RAD 4 FIX π 1 3 / (1,-2) \"say \\\"hi\\\"\" { A 1 { } } 'X' « → a « a 'Y' STO » » 'P' STO 7 'N' STO")
             .unwrap();
+        c.exec_line("'X^2+1' [[1 2][3 4]] :T:5 HEX 16 STWS #FFh 5 SF -3 SF 'D' CRDIR D 'E' CRDIR E 9 'Z' STO")
+            .unwrap();
         save(&c, &path).unwrap();
         let mut d = Calc::new();
         load(&mut d, &path).unwrap();
@@ -114,5 +152,7 @@ mod tests {
         assert_eq!(d.stack, c.stack);
         assert_eq!(d.vars, c.vars);
         assert_eq!((d.angle, d.fmt), (Angle::Rad, Fmt::Fix(4)));
+        assert_eq!((d.base, d.wordsize, d.flags), (Base::Hex, 16, [16, 4]));
+        assert_eq!(d.path, ["D", "E"]);
     }
 }

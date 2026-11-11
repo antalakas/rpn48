@@ -1,11 +1,18 @@
 //! rpn48: an RPN calculator for the terminal in the style of the HP 48.
 
+mod alg;
+mod array;
+mod binary;
 mod calc;
 mod keypad;
+mod lists;
 mod menu;
+mod more;
 mod obj;
 mod parse;
 mod persist;
+mod stat;
+mod symbolic;
 mod ui;
 
 use std::io;
@@ -188,7 +195,7 @@ impl App {
             KeyCode::Tab => Act::NextPage,
             KeyCode::BackTab => Act::PrevPage,
             KeyCode::F(n @ 1..=6) => Act::Soft(n as usize - 1),
-            KeyCode::F(n @ 7..=11) => Act::Menu(Menu::ALL[n as usize - 7]),
+            KeyCode::F(n @ 7..=11) => Act::Menu(Menu::FKEYS[n as usize - 7]),
             KeyCode::Esc if !had_message => Act::Cancel,
             _ => Act::Nothing,
         };
@@ -331,8 +338,12 @@ impl App {
 
     fn soft_key(&mut self, i: usize) {
         let label = self.calc.menu.page(&self.calc, self.calc.page)[i].clone();
-        if !label.is_empty() {
-            self.command(&label);
+        if label.is_empty() {
+            return;
+        }
+        match self.calc.menu.sub(&label) {
+            Some(m) => (self.calc.menu, self.calc.page) = (m, 0),
+            None => self.command(&label),
         }
     }
 
@@ -373,6 +384,7 @@ impl App {
         }
         if let Err(e) = self.calc.exec_nodes(&nodes) {
             self.message = Some(e.report());
+            self.calc.last_err = Some(e);
         }
         self.save();
     }

@@ -1,7 +1,8 @@
 //! Command-line and program parsing.
 
+use crate::alg::{Expr, parse_alg};
 use crate::calc::{Error, Res};
-use crate::obj::{Node, Obj, r12};
+use crate::obj::{Base, Node, Obj, base, r12};
 
 #[derive(Clone, Debug, PartialEq)]
 enum Tok {
@@ -9,6 +10,11 @@ enum Tok {
     Cplx(f64, f64),
     Str(String),
     Quoted(String),
+    Alg(Expr),
+    Bin(u64),
+    Tag(String),
+    LBrack,
+    RBrack,
     LBrace,
     RBrace,
     LProg,
@@ -19,11 +25,12 @@ enum Tok {
 /// Words that open or close a control structure.
 const KEYWORDS: &[&str] = &[
     "IF", "THEN", "ELSE", "END", "START", "FOR", "NEXT", "STEP", "WHILE", "REPEAT", "DO", "UNTIL",
+    "CASE", "IFERR", "DIR",
 ];
 const TERMINATORS: &[&str] = &["THEN", "ELSE", "END", "NEXT", "STEP", "REPEAT", "UNTIL"];
 
 fn is_delim(c: char) -> bool {
-    c.is_whitespace() || "\"'{}«»(".contains(c)
+    c.is_whitespace() || "\"'{}«»([".contains(c)
 }
 
 /// Parses a real the way the calculator reads one, rounded to 12 digits.
@@ -55,7 +62,7 @@ pub fn valid_name(s: &str) -> bool {
 
 /// ASCII spellings of the calculator's special characters, so they can be
 /// typed: -> for →, SQRT for √, <= for ≤ and so on.
-fn normalize(w: &str) -> String {
+pub fn normalize(w: &str) -> String {
     let w = w.replace("->", "→");
     let alias = match w.as_str() {
         "SQRT" => "√",
@@ -121,12 +128,16 @@ fn tokenize(src: &str) -> Res<Vec<Tok>> {
                     .iter()
                     .position(|&c| c == '\'')
                     .ok_or(Error::Syntax)?;
-                let name: String = cs[i + 1..i + 1 + len].iter().collect();
-                let name = normalize(name.trim());
-                if !valid_name(&name) {
-                    return Err(Error::Algebraic);
-                }
-                out.push(Tok::Quoted(name));
+                let text: String = cs[i + 1..i + 1 + len].iter().collect();
+                let name = normalize(text.trim());
+                out.push(if valid_name(&name) {
+                    Tok::Quoted(name)
+                } else {
+                    match parse_alg(&text)? {
+                        Expr::Name(n) => Tok::Quoted(n),
+                        e => Tok::Alg(e),
+                    }
+                });
                 i += len + 2;
             }
             '(' => {
@@ -149,20 +160,47 @@ fn tokenize(src: &str) -> Res<Vec<Tok>> {
                 out.push(Tok::Cplx(re, im));
                 i += len + 2;
             }
-            '{' | '}' | '«' | '»' => {
+            '{' | '}' | '«' | '»' | '[' | ']' => {
                 out.push(match c {
                     '{' => Tok::LBrace,
                     '}' => Tok::RBrace,
                     '«' => Tok::LProg,
+                    '[' => Tok::LBrack,
+                    ']' => Tok::RBrack,
                     _ => Tok::RProg,
                 });
                 i += 1;
+            }
+            // # FFh, #255d, #1010b; without a suffix, in the current base.
+            '#' => {
+                i += 1;
+                while cs.get(i) == Some(&' ') {
+                    i += 1;
+                }
+                let start = i;
+                while i < cs.len() && cs[i].is_ascii_alphanumeric() {
+                    i += 1;
+                }
+                let w: String = cs[start..i].iter().collect();
+                out.push(Tok::Bin(parse_bin(&w).ok_or(Error::Syntax)?));
+            }
+            ':' => {
+                let len = cs[i + 1..]
+                    .iter()
+                    .position(|&c| c == ':')
+                    .ok_or(Error::Syntax)?;
+                let tag: String = cs[i + 1..i + 1 + len].iter().collect();
+                if tag.is_empty() || tag.chars().any(char::is_whitespace) {
+                    return Err(Error::Syntax);
+                }
+                out.push(Tok::Tag(tag));
+                i += len + 2;
             }
             _ => {
                 let start = i;
                 while i < cs.len()
                     && !is_delim(cs[i])
-                    && !"}»".contains(cs[i])
+                    && !"}»]".contains(cs[i])
                     && !pair(i, "<<")
                     && !pair(i, ">>")
                 {
@@ -180,6 +218,15 @@ fn tokenize(src: &str) -> Res<Vec<Tok>> {
         }
     }
     Ok(out)
+}
+
+/// The digits of a binary integer and its optional base suffix.
+fn parse_bin(w: &str) -> Option<u64> {
+    let (digits, b) = match w.chars().last().and_then(Base::from_suffix) {
+        Some(b) if w.len() > 1 => (&w[..w.len() - 1], b),
+        _ => (w, base()),
+    };
+    u64::from_str_radix(digits, b.radix()).ok()
 }
 
 /// Parses a command line (or the source of a program) into the steps to run.
@@ -212,8 +259,8 @@ pub fn is_open(s: &str) -> bool {
             match c {
                 '"' => in_str = true,
                 '\'' => in_quote = true,
-                '{' | '«' | '(' => depth += 1,
-                '}' | '»' | ')' => depth -= 1,
+                '{' | '«' | '(' | '[' => depth += 1,
+                '}' | '»' | ')' | ']' => depth -= 1,
                 '<' | '>' if next == Some(c) => {
                     depth += if c == '<' { 1 } else { -1 };
                     i += 1;
@@ -261,13 +308,7 @@ impl Parser {
         let tok = self.toks[self.i].clone();
         self.i += 1;
         Ok(match tok {
-            Tok::Num(x) => Node::Push(Obj::Real(x)),
-            Tok::Cplx(re, im) => Node::Push(Obj::Complex(re, im)),
-            Tok::Str(s) => Node::Push(Obj::Str(s)),
             Tok::Quoted(n) => Node::Push(Obj::Name(n)),
-            Tok::LBrace => Node::Push(self.list()?),
-            Tok::LProg => Node::Push(Obj::Prog(self.until(&["»"])?.0)),
-            Tok::RBrace | Tok::RProg => return Err(Error::Syntax),
             Tok::Word(w) => match w.as_str() {
                 "IF" => {
                     let cond = self.until(&["THEN"])?.0;
@@ -309,12 +350,46 @@ impl Parser {
                     let cond = self.until(&["END"])?.0;
                     Node::Do { body, cond }
                 }
+                "CASE" => {
+                    let mut clauses = vec![];
+                    loop {
+                        let (cond, end) = self.until(&["THEN", "END"])?;
+                        if end == "END" {
+                            break Node::Case {
+                                clauses,
+                                default: cond,
+                            };
+                        }
+                        clauses.push((cond, self.until(&["END"])?.0));
+                    }
+                }
+                "IFERR" => {
+                    let body = self.until(&["THEN"])?.0;
+                    let (then, end) = self.until(&["ELSE", "END"])?;
+                    let els = if end == "ELSE" {
+                        Some(self.until(&["END"])?.0)
+                    } else {
+                        None
+                    };
+                    Node::IfErr { body, then, els }
+                }
+                "DIR" => Node::Push(self.dir()?),
                 "→" => {
                     let mut names = vec![];
                     loop {
                         match self.toks.get(self.i) {
                             Some(Tok::Word(v)) if valid_name(v) => names.push(v.clone()),
                             Some(Tok::LProg) if !names.is_empty() => break,
+                            Some(Tok::Quoted(n)) if !names.is_empty() => {
+                                self.i += 1;
+                                let expr = Obj::Name(n.clone());
+                                return Ok(Node::LocalAlg { names, expr });
+                            }
+                            Some(Tok::Alg(e)) if !names.is_empty() => {
+                                self.i += 1;
+                                let expr = Obj::Alg(e.clone());
+                                return Ok(Node::LocalAlg { names, expr });
+                            }
                             _ => return Err(Error::Syntax),
                         }
                         self.i += 1;
@@ -325,7 +400,89 @@ impl Parser {
                 }
                 _ => Node::Word(w),
             },
+            tok => Node::Push(self.object(tok)?),
         })
+    }
+
+    /// An object written literally, the one `tok` starts.
+    fn object(&mut self, tok: Tok) -> Res<Obj> {
+        Ok(match tok {
+            Tok::Num(x) => Obj::Real(x),
+            Tok::Cplx(re, im) => Obj::Complex(re, im),
+            Tok::Str(s) => Obj::Str(s),
+            Tok::Quoted(n) => Obj::Name(n),
+            Tok::Alg(e) => Obj::Alg(e),
+            Tok::Bin(n) => Obj::Bin(n),
+            Tok::LBrace => self.list()?,
+            Tok::LBrack => self.array()?,
+            Tok::LProg => Obj::Prog(self.until(&["»"])?.0),
+            Tok::Tag(t) => {
+                let tok = self.toks.get(self.i).cloned().ok_or(Error::Syntax)?;
+                self.i += 1;
+                let o = match tok {
+                    Tok::Word(w) if w == "DIR" => self.dir()?,
+                    Tok::Word(w) => Obj::Name(w),
+                    tok => self.object(tok)?,
+                };
+                Obj::Tag(t, Box::new(o))
+            }
+            Tok::RBrace | Tok::RProg | Tok::RBrack | Tok::Word(_) => return Err(Error::Syntax),
+        })
+    }
+
+    // [ 1 2 3 ] is a vector, [[ 1 2 ] [ 3 4 ]] a matrix.
+    fn array(&mut self) -> Res<Obj> {
+        let row = |p: &mut Parser| -> Res<Vec<f64>> {
+            let mut r = vec![];
+            loop {
+                let tok = p.toks.get(p.i).cloned().ok_or(Error::Syntax)?;
+                p.i += 1;
+                match tok {
+                    Tok::Num(x) => r.push(x),
+                    Tok::RBrack => return Ok(r),
+                    _ => return Err(Error::Syntax),
+                }
+            }
+        };
+        if self.toks.get(self.i) != Some(&Tok::LBrack) {
+            return Ok(Obj::Vect(row(self)?));
+        }
+        let mut rows: Vec<Vec<f64>> = vec![];
+        loop {
+            let tok = self.toks.get(self.i).cloned().ok_or(Error::Syntax)?;
+            self.i += 1;
+            match tok {
+                Tok::LBrack => rows.push(row(self)?),
+                Tok::RBrack => break,
+                _ => return Err(Error::Syntax),
+            }
+        }
+        let cols = rows[0].len();
+        if cols == 0 || rows.iter().any(|r| r.len() != cols) {
+            return Err(Error::Syntax);
+        }
+        Ok(Obj::Mat(rows))
+    }
+
+    // DIR name object name object ... END
+    fn dir(&mut self) -> Res<Obj> {
+        let mut vars = vec![];
+        loop {
+            let tok = self.toks.get(self.i).cloned().ok_or(Error::Syntax)?;
+            self.i += 1;
+            let name = match tok {
+                Tok::Word(w) if w == "END" => return Ok(Obj::Dir(vars)),
+                Tok::Word(n) | Tok::Quoted(n) if valid_name(&n) => n,
+                _ => return Err(Error::Syntax),
+            };
+            let tok = self.toks.get(self.i).cloned().ok_or(Error::Syntax)?;
+            self.i += 1;
+            let v = match tok {
+                Tok::Word(w) if w == "DIR" => self.dir()?,
+                tok => self.object(tok)?,
+            };
+            vars.push((name, v));
+        }
     }
 
     // Inside a list nothing runs: words become names, programs stay programs.
@@ -336,13 +493,9 @@ impl Parser {
             self.i += 1;
             items.push(match tok {
                 Tok::RBrace => return Ok(Obj::List(items)),
-                Tok::Num(x) => Obj::Real(x),
-                Tok::Cplx(re, im) => Obj::Complex(re, im),
-                Tok::Str(s) => Obj::Str(s),
+                Tok::Word(w) if w == "DIR" => self.dir()?,
                 Tok::Quoted(n) | Tok::Word(n) => Obj::Name(n),
-                Tok::LBrace => self.list()?,
-                Tok::LProg => Obj::Prog(self.until(&["»"])?.0),
-                Tok::RProg => return Err(Error::Syntax),
+                tok => self.object(tok)?,
             });
         }
     }
@@ -388,7 +541,32 @@ mod tests {
         assert_eq!(parse("1 THEN"), Err(Error::Syntax));
         assert_eq!(parse("\"abc"), Err(Error::Syntax));
         assert_eq!(parse("12abc"), Err(Error::Syntax));
-        assert_eq!(parse("'X+1'"), Err(Error::Algebraic));
+        assert_eq!(parse("'X+'"), Err(Error::Syntax));
+        assert_eq!(parse("[ 1 [ 2 ] ]"), Err(Error::Syntax));
+        assert_eq!(parse("[[ 1 2 ] [ 3 ]]"), Err(Error::Syntax));
+    }
+
+    #[test]
+    fn new_objects_read_back() {
+        assert_eq!(round_trip("'X^2+1'"), "'X^2+1'");
+        assert_eq!(round_trip("[1 2 3]"), "[ 1 2 3 ]");
+        assert_eq!(round_trip("[[1 2][3 4]]"), "[[ 1 2 ] [ 3 4 ]]");
+        assert_eq!(round_trip("#FFh"), "# 255d");
+        assert_eq!(round_trip("# 1010b"), "# 10d");
+        assert_eq!(round_trip(":A: 5"), ":A:5");
+        assert_eq!(
+            round_trip("DIR A 1 B DIR C 'X' END END"),
+            "DIR A 1 B DIR C 'X' END END"
+        );
+        assert_eq!(
+            round_trip("« CASE DUP 0 < THEN NEG END DUP 0 == THEN 1 + END END »"),
+            "« CASE DUP 0 < THEN NEG END DUP 0 == THEN 1 + END END »"
+        );
+        assert_eq!(
+            round_trip("« IFERR 1 0 / THEN ERRM END »"),
+            "« IFERR 1 0 / THEN ERRM END »"
+        );
+        assert_eq!(round_trip("« → x 'x^2' »"), "« → x 'x^2' »");
     }
 
     #[test]

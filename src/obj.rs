@@ -1,5 +1,9 @@
 //! Calculator objects, and how they are written on the display.
 
+use std::cell::Cell;
+
+use crate::alg::{Expr, write_expr};
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Obj {
     Real(f64),
@@ -8,6 +12,75 @@ pub enum Obj {
     Name(String),
     List(Vec<Obj>),
     Prog(Vec<Node>),
+    /// A binary integer, kept masked to the word size.
+    Bin(u64),
+    /// Real vectors [ 1 2 3 ] and matrices [[ 1 2 ] [ 3 4 ]], rows of equal length.
+    Vect(Vec<f64>),
+    Mat(Vec<Vec<f64>>),
+    Alg(Expr),
+    /// An object with a label, :A:5.
+    Tag(String, Box<Obj>),
+    /// A subdirectory: its variables, newest first.
+    Dir(Vec<(String, Obj)>),
+}
+
+/// The base binary integers are shown in, and read in when typed without
+/// one of the suffixes h d o b.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Base {
+    Hex,
+    Dec,
+    Oct,
+    Bin,
+}
+
+impl Base {
+    pub fn name(self) -> &'static str {
+        match self {
+            Base::Hex => "HEX",
+            Base::Dec => "DEC",
+            Base::Oct => "OCT",
+            Base::Bin => "BIN",
+        }
+    }
+
+    pub fn radix(self) -> u32 {
+        match self {
+            Base::Hex => 16,
+            Base::Dec => 10,
+            Base::Oct => 8,
+            Base::Bin => 2,
+        }
+    }
+
+    pub fn suffix(self) -> char {
+        match self {
+            Base::Hex => 'h',
+            Base::Dec => 'd',
+            Base::Oct => 'o',
+            Base::Bin => 'b',
+        }
+    }
+
+    pub fn from_suffix(c: char) -> Option<Base> {
+        [Base::Hex, Base::Dec, Base::Oct, Base::Bin]
+            .into_iter()
+            .find(|b| b.suffix() == c)
+    }
+}
+
+thread_local! {
+    static BASE: Cell<Base> = const { Cell::new(Base::Dec) };
+}
+
+/// The current base, which display and parsing both follow. It lives here
+/// rather than being passed around because only binary integers need it.
+pub fn base() -> Base {
+    BASE.with(Cell::get)
+}
+
+pub fn set_base(b: Base) {
+    BASE.with(|c| c.set(b));
 }
 
 /// One step of a program. Control structures are parsed into a tree once, when
@@ -41,6 +114,21 @@ pub enum Node {
     Local {
         names: Vec<String>,
         body: Vec<Node>,
+    },
+    /// → x y 'expr': local variables for an algebraic, a user-defined function.
+    LocalAlg {
+        names: Vec<String>,
+        expr: Obj,
+    },
+    /// CASE c1 THEN b1 END c2 THEN b2 END default END
+    Case {
+        clauses: Vec<(Vec<Node>, Vec<Node>)>,
+        default: Vec<Node>,
+    },
+    IfErr {
+        body: Vec<Node>,
+        then: Vec<Node>,
+        els: Option<Vec<Node>>,
     },
 }
 
@@ -115,7 +203,67 @@ fn write_obj(out: &mut String, o: &Obj, fmt: Fmt, top: bool) {
             write_nodes(out, nodes, fmt);
             out.push_str(" »");
         }
+        Obj::Bin(n) => {
+            let b = base();
+            out.push_str("# ");
+            out.push_str(&radix(*n, b.radix()));
+            out.push(b.suffix());
+        }
+        Obj::Vect(v) => write_row(out, v, fmt),
+        Obj::Mat(m) => {
+            out.push('[');
+            for (i, r) in m.iter().enumerate() {
+                if i > 0 {
+                    out.push(' ');
+                }
+                write_row(out, r, fmt);
+            }
+            out.push(']');
+        }
+        Obj::Alg(e) => {
+            out.push('\'');
+            write_expr(out, e, fmt);
+            out.push('\'');
+        }
+        Obj::Tag(t, o) => {
+            out.push(':');
+            out.push_str(t);
+            out.push(':');
+            write_obj(out, o, fmt, true);
+        }
+        Obj::Dir(vars) => {
+            out.push_str("DIR");
+            for (n, v) in vars {
+                out.push(' ');
+                out.push_str(n);
+                out.push(' ');
+                write_obj(out, v, fmt, true);
+            }
+            out.push_str(" END");
+        }
     }
+}
+
+fn write_row(out: &mut String, r: &[f64], fmt: Fmt) {
+    out.push('[');
+    for x in r {
+        out.push(' ');
+        out.push_str(&fmt_real(*x, fmt));
+    }
+    out.push_str(" ]");
+}
+
+/// `n` written in base `radix`, upper-case digits.
+pub fn radix(mut n: u64, radix: u32) -> String {
+    if n == 0 {
+        return "0".into();
+    }
+    let mut d = vec![];
+    while n > 0 {
+        d.push(std::char::from_digit((n % radix as u64) as u32, radix).unwrap());
+        n /= radix as u64;
+    }
+    d.iter().rev().collect::<String>().to_uppercase()
 }
 
 fn write_nodes(out: &mut String, nodes: &[Node], fmt: Fmt) {
@@ -175,6 +323,37 @@ fn write_node(out: &mut String, n: &Node, fmt: Fmt) {
             out.push_str(" «");
             write_nodes(out, body, fmt);
             out.push_str(" »");
+        }
+        Node::LocalAlg { names, expr } => {
+            out.push('→');
+            for n in names {
+                out.push(' ');
+                out.push_str(n);
+            }
+            out.push(' ');
+            write_obj(out, expr, fmt, true);
+        }
+        Node::Case { clauses, default } => {
+            out.push_str("CASE");
+            for (c, b) in clauses {
+                write_nodes(out, c, fmt);
+                out.push_str(" THEN");
+                write_nodes(out, b, fmt);
+                out.push_str(" END");
+            }
+            write_nodes(out, default, fmt);
+            out.push_str(" END");
+        }
+        Node::IfErr { body, then, els } => {
+            out.push_str("IFERR");
+            write_nodes(out, body, fmt);
+            out.push_str(" THEN");
+            write_nodes(out, then, fmt);
+            if let Some(els) = els {
+                out.push_str(" ELSE");
+                write_nodes(out, els, fmt);
+            }
+            out.push_str(" END");
         }
     }
 }

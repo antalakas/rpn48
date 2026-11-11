@@ -1,66 +1,251 @@
-//! Soft-key menus, six labels to a page.
+//! Soft-key menus, six labels to a page. A label that names another menu
+//! switches to it, as MTH's VECTR or PRG's BRCH do on the calculator.
 
 use crate::calc::Calc;
+use crate::obj::Obj;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Menu {
     Mth,
+    Vectr,
+    Matr,
+    List,
+    Hyp,
+    Real,
+    Base,
+    Prob,
+    Cmpl,
+    Trig,
+    Logs,
     Stk,
     Prg,
+    Brch,
+    Test,
+    Type,
+    Error,
     Var,
+    Cst,
     Modes,
+    Flag,
+    Memory,
+    Stat,
+    Symbolic,
+    Time,
 }
 
 const MTH: &[&str] = &[
+    "VECTR", "MATR", "LIST", "HYP", "REAL", "BASE", //
+    "PROB", "CMPL", "TRIG", "LOGS", "π", "e", //
+];
+const VECTR: &[&str] = &[
+    "ABS", "DOT", "CROSS", "V→", "→V2", "→V3", //
+    "NEG", "SIZE", "→ARRY", "ARRY→", "GET", "PUT", //
+];
+const MATR: &[&str] = &[
+    "→ARRY", "ARRY→", "IDN", "CON", "TRN", "DET", //
+    "INV", "RDM", "RNRM", "CNRM", "TRACE", "SIZE", //
+    "ABS", "SQ", "GET", "PUT", //
+];
+const LIST: &[&str] = &[
+    "DOLIST", "DOSUBS", "NSUB", "ENDSUB", "STREAM", "SEQ", //
+    "REVLIST", "SORT", "ΣLIST", "ΠLIST", "ΔLIST", "ADD", //
+    "→LIST", "LIST→", "HEAD", "TAIL", "SUB", "REPL", //
+    "SIZE", "POS", "GET", "PUT", //
+];
+const HYP: &[&str] = &[
+    "SINH", "COSH", "TANH", "ASINH", "ACOSH", "ATANH", //
+    "EXPM", "LNP1", //
+];
+const REAL: &[&str] = &[
     "ABS", "SIGN", "IP", "FP", "FLOOR", "CEIL", //
     "MOD", "MIN", "MAX", "%", "%CH", "%T", //
-    "!", "SQ", "√", "INV", "NEG", "^", //
-    "SIN", "COS", "TAN", "ASIN", "ACOS", "ATAN", //
-    "SINH", "COSH", "TANH", "ASINH", "ACOSH", "ATANH", //
-    "LN", "LOG", "EXP", "ALOG", "π", "e", //
-    "R→C", "C→R", "RE", "IM", "CONJ", "ARG", //
+    "RND", "TRNC", "MANT", "XPON", "D→R", "R→D", //
+    "!", "SQ", "√", "INV", "NEG", "XROOT", //
 ];
+const BASE: &[&str] = &[
+    "HEX", "DEC", "OCT", "BIN", "STWS", "RCWS", //
+    "R→B", "B→R", "AND", "OR", "XOR", "NOT", //
+    "SL", "SR", "SLB", "SRB", "ASR", "NEG", //
+    "RL", "RR", "RLB", "RRB", //
+];
+const PROB: &[&str] = &["COMB", "PERM", "!", "RAND", "RDZ"];
+const CMPL: &[&str] = &[
+    "R→C", "C→R", "RE", "IM", "CONJ", "ARG", //
+    "ABS", "SIGN", "NEG", //
+];
+const TRIG: &[&str] = &[
+    "SIN", "COS", "TAN", "ASIN", "ACOS", "ATAN", //
+    "π", "D→R", "R→D", "→HMS", "HMS→", //
+];
+const LOGS: &[&str] = &["LN", "LOG", "EXP", "ALOG", "LNP1", "EXPM"];
 const STK: &[&str] = &[
     "DUP", "SWAP", "DROP", "OVER", "ROT", "PICK", //
     "ROLL", "ROLLD", "DUP2", "DROP2", "DUPN", "DROPN", //
-    "DEPTH", "CLEAR", //
+    "DEPTH", "CLEAR", "LASTARG", //
 ];
 const PRG: &[&str] = &[
-    "EVAL", "IFT", "IFTE", "→LIST", "LIST→", "OBJ→", //
-    "SIZE", "GET", "PUT", "HEAD", "TAIL", "SUB", //
-    "→STR", "STR→", "TYPE", "SAME", "==", "≠", //
-    "<", ">", "≤", "≥", "AND", "OR", //
-    "XOR", "NOT", "STO", "RCL", "PURGE", "VARS", //
+    "BRCH", "TEST", "TYPE", "LIST", "ERROR", "STK", //
+    "EVAL", "STO", "RCL", "PURGE", "VARS", "MEMORY", //
 ];
+const BRCH: &[&str] = &[
+    "IF", "THEN", "ELSE", "END", "IFT", "IFTE", //
+    "CASE", "START", "FOR", "NEXT", "STEP", "→", //
+    "DO", "UNTIL", "WHILE", "REPEAT", //
+];
+const TEST: &[&str] = &[
+    "==", "≠", "<", ">", "≤", "≥", //
+    "AND", "OR", "XOR", "NOT", "SAME", "TYPE", //
+    "SF", "CF", "FS?", "FC?", "FS?C", "FC?C", //
+];
+const TYPE: &[&str] = &[
+    "OBJ→", "→ARRY", "→LIST", "→STR", "→TAG", "DTAG", //
+    "STR→", "LIST→", "ARRY→", "EQ→", "TYPE", "SIZE", //
+    "NUM", "CHR", "POS", "SUB", "REPL", "HEAD", //
+];
+const ERROR: &[&str] = &["DOERR", "ERRN", "ERRM", "ERR0", "IFERR", "LASTARG"];
 const MODES: &[&str] = &[
-    "STD", "FIX", "SCI", "ENG", "DEG", "RAD", "GRAD", "D→R", "R→D",
+    "STD", "FIX", "SCI", "ENG", "FLAG", "BASE", //
+    "DEG", "RAD", "GRAD", "HEX", "DEC", "BIN", //
+];
+const FLAG: &[&str] = &["SF", "CF", "FS?", "FC?", "FS?C", "FC?C"];
+const MEMORY: &[&str] = &[
+    "PATH", "CRDIR", "PGDIR", "HOME", "UPDIR", "VARS", //
+    "PURGE", "STO+", "STO-", "STO*", "STO/", "INCR", //
+    "DECR", //
+];
+const STAT: &[&str] = &[
+    "Σ+", "Σ-", "CLΣ", "NΣ", "TOT", "MEAN", //
+    "SDEV", "VAR", "MAXΣ", "MINΣ", "XCOL", "YCOL", //
+    "LR", "PREDY", "PREDX", "CORR", "COV", "ΣX", //
+    "ΣY", "ΣX2", "ΣY2", "ΣXY", //
+];
+const SYMBOLIC: &[&str] = &[
+    "∂", "∫", "Σ", "ROOT", "TAYLR", "|", //
+    "COLCT", "→Q", "EQ→", "EVAL", "→NUM", "=", //
+];
+const TIME: &[&str] = &[
+    "TIME", "DATE", "TICKS", "→HMS", "HMS→", "HMS+", //
+    "HMS-", //
 ];
 
 impl Menu {
-    pub const ALL: [Menu; 5] = [Menu::Mth, Menu::Stk, Menu::Prg, Menu::Var, Menu::Modes];
+    pub const ALL: [Menu; 25] = [
+        Menu::Mth,
+        Menu::Vectr,
+        Menu::Matr,
+        Menu::List,
+        Menu::Hyp,
+        Menu::Real,
+        Menu::Base,
+        Menu::Prob,
+        Menu::Cmpl,
+        Menu::Trig,
+        Menu::Logs,
+        Menu::Stk,
+        Menu::Prg,
+        Menu::Brch,
+        Menu::Test,
+        Menu::Type,
+        Menu::Error,
+        Menu::Var,
+        Menu::Cst,
+        Menu::Modes,
+        Menu::Flag,
+        Menu::Memory,
+        Menu::Stat,
+        Menu::Symbolic,
+        Menu::Time,
+    ];
+
+    /// The menus on F7–F11.
+    pub const FKEYS: [Menu; 5] = [Menu::Mth, Menu::Stk, Menu::Prg, Menu::Var, Menu::Modes];
 
     pub fn name(self) -> &'static str {
         match self {
             Menu::Mth => "MTH",
+            Menu::Vectr => "VECTR",
+            Menu::Matr => "MATR",
+            Menu::List => "LIST",
+            Menu::Hyp => "HYP",
+            Menu::Real => "REAL",
+            Menu::Base => "BASE",
+            Menu::Prob => "PROB",
+            Menu::Cmpl => "CMPL",
+            Menu::Trig => "TRIG",
+            Menu::Logs => "LOGS",
             Menu::Stk => "STK",
             Menu::Prg => "PRG",
+            Menu::Brch => "BRCH",
+            Menu::Test => "TEST",
+            Menu::Type => "TYPE",
+            Menu::Error => "ERROR",
             Menu::Var => "VAR",
+            Menu::Cst => "CST",
             Menu::Modes => "MODES",
+            Menu::Flag => "FLAG",
+            Menu::Memory => "MEMORY",
+            Menu::Stat => "STAT",
+            Menu::Symbolic => "SYMBOLIC",
+            Menu::Time => "TIME",
         }
     }
 
-    /// The menu a command of that name switches to.
+    /// The menu a command of that name switches to. TYPE and TIME are
+    /// commands as well, so their menus are only reached from the keys.
     pub fn named(w: &str) -> Option<Menu> {
-        Menu::ALL.into_iter().find(|m| m.name() == w)
+        Menu::ALL
+            .into_iter()
+            .find(|m| m.name() == w && !matches!(m, Menu::Type | Menu::Time))
+    }
+
+    /// The menu a soft key labelled `label` opens, if it is a submenu here.
+    /// TYPE is the PRG TYPE menu only in PRG; elsewhere it is the command.
+    pub fn sub(self, label: &str) -> Option<Menu> {
+        if label == "TYPE" && self != Menu::Prg {
+            return None;
+        }
+        Menu::ALL.into_iter().find(|m| m.name() == label)
     }
 
     pub fn items(self, calc: &Calc) -> Vec<String> {
         let fixed = match self {
             Menu::Mth => MTH,
+            Menu::Vectr => VECTR,
+            Menu::Matr => MATR,
+            Menu::List => LIST,
+            Menu::Hyp => HYP,
+            Menu::Real => REAL,
+            Menu::Base => BASE,
+            Menu::Prob => PROB,
+            Menu::Cmpl => CMPL,
+            Menu::Trig => TRIG,
+            Menu::Logs => LOGS,
             Menu::Stk => STK,
             Menu::Prg => PRG,
+            Menu::Brch => BRCH,
+            Menu::Test => TEST,
+            Menu::Type => TYPE,
+            Menu::Error => ERROR,
             Menu::Modes => MODES,
-            Menu::Var => return calc.vars.iter().map(|(n, _)| n.clone()).collect(),
+            Menu::Flag => FLAG,
+            Menu::Memory => MEMORY,
+            Menu::Stat => STAT,
+            Menu::Symbolic => SYMBOLIC,
+            Menu::Time => TIME,
+            Menu::Var => return calc.cur_vars().iter().map(|(n, _)| n.clone()).collect(),
+            // The custom menu lists what the variable CST holds.
+            Menu::Cst => {
+                return match calc.global("CST") {
+                    Some(Obj::List(l)) => l
+                        .iter()
+                        .map(|o| match o {
+                            Obj::Name(n) | Obj::Str(n) => n.clone(),
+                            o => o.show(calc.fmt),
+                        })
+                        .collect(),
+                    _ => vec![],
+                };
+            }
         };
         fixed.iter().map(|s| s.to_string()).collect()
     }

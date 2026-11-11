@@ -55,13 +55,21 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
         Some(Shift::Right) => Span::styled("▶ ", Style::new().fg(RIGHT_SHIFT).bold()),
         None => Span::raw(""),
     };
-    let modes = match calc.fmt {
-        Fmt::Std => format!("{}  STD", calc.angle.name()),
-        Fmt::Fix(n) => format!("{}  FIX {n}", calc.angle.name()),
-        Fmt::Sci(n) => format!("{}  SCI {n}", calc.angle.name()),
-        Fmt::Eng(n) => format!("{}  ENG {n}", calc.angle.name()),
+    let fmt = match calc.fmt {
+        Fmt::Std => "STD".into(),
+        Fmt::Fix(n) => format!("FIX {n}"),
+        Fmt::Sci(n) => format!("SCI {n}"),
+        Fmt::Eng(n) => format!("ENG {n}"),
     };
-    let header = spread("{ HOME }", &modes, w.saturating_sub(shift.width()));
+    let modes = format!("{}  {}  {fmt}", calc.angle.name(), calc.base.name());
+    let path = format!(
+        "{{ HOME {}}}",
+        calc.path
+            .iter()
+            .map(|d| d.clone() + " ")
+            .collect::<String>()
+    );
+    let header = spread(&path, &modes, w.saturating_sub(shift.width()));
     f.render_widget(
         Paragraph::new(Line::from(vec![shift, Span::raw(header).dim()])),
         row(y),
