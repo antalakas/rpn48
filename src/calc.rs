@@ -6,7 +6,7 @@ use std::fmt;
 
 use crate::alg::{self, SYMBOLIC, is_symbolic};
 use crate::menu::Menu;
-use crate::obj::{Base, Fmt, Node, Obj, r12, set_base};
+use crate::obj::{Base, Coord, Fmt, Node, Obj, r12, set_base, set_coord};
 use crate::parse::parse;
 use crate::pause::PauseFn;
 use crate::{array, binary, lists, more, units};
@@ -146,6 +146,7 @@ pub struct Snapshot {
     vars: Vec<(String, Obj)>,
     path: Vec<String>,
     angle: Angle,
+    coord: Coord,
     fmt: Fmt,
     base: Base,
     wordsize: u32,
@@ -164,6 +165,7 @@ pub struct Calc {
     /// The current directory, as the names of the directories below HOME.
     pub path: Vec<String>,
     pub angle: Angle,
+    pub coord: Coord,
     pub fmt: Fmt,
     pub base: Base,
     /// Binary integers are kept to this many bits (STWS), 1 to 64.
@@ -201,7 +203,9 @@ pub struct Calc {
 impl Calc {
     pub fn new() -> Self {
         set_base(Base::Dec);
-        Calc::blank()
+        let mut c = Calc::blank();
+        c.set_angle(Angle::Deg);
+        c
     }
 
     /// A calculator in its starting state, leaving the display's base alone.
@@ -211,6 +215,7 @@ impl Calc {
             vars: vec![],
             path: vec![],
             angle: Angle::Deg,
+            coord: Coord::Rect,
             fmt: Fmt::Std,
             base: Base::Dec,
             wordsize: 64,
@@ -240,6 +245,7 @@ impl Calc {
             vars: self.vars.clone(),
             path: self.path.clone(),
             angle: self.angle,
+            coord: self.coord,
             fmt: self.fmt,
             base: self.base,
             wordsize: self.wordsize,
@@ -249,8 +255,21 @@ impl Calc {
 
     pub fn restore(&mut self, s: Snapshot) {
         (self.stack, self.vars, self.path) = (s.stack, s.vars, s.path);
-        (self.angle, self.fmt, self.wordsize, self.flags) = (s.angle, s.fmt, s.wordsize, s.flags);
+        (self.fmt, self.wordsize, self.flags) = (s.fmt, s.wordsize, s.flags);
         self.set_base(s.base);
+        self.set_angle(s.angle);
+        self.set_coord(s.coord);
+    }
+
+    // The display shows polar angles in the angle mode, so it is told both.
+    pub fn set_angle(&mut self, a: Angle) {
+        self.angle = a;
+        set_coord(self.coord, self.angle_to_rad(1.0));
+    }
+
+    pub fn set_coord(&mut self, c: Coord) {
+        self.coord = c;
+        set_coord(c, self.angle_to_rad(1.0));
     }
 
     pub fn set_base(&mut self, b: Base) {
@@ -801,11 +820,19 @@ impl Calc {
                 Ok(())
             }),
             "DEG" | "RAD" | "GRAD" => {
-                self.angle = match w {
+                self.set_angle(match w {
                     "DEG" => Angle::Deg,
                     "RAD" => Angle::Rad,
                     _ => Angle::Grad,
-                };
+                });
+                Ok(())
+            }
+            "RECT" | "CYLIN" | "SPHERE" => {
+                self.set_coord(match w {
+                    "RECT" => Coord::Rect,
+                    "CYLIN" => Coord::Cylin,
+                    _ => Coord::Sphere,
+                });
                 Ok(())
             }
             _ => {

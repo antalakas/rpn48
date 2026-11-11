@@ -72,8 +72,58 @@ impl Base {
     }
 }
 
+/// How complex numbers and 2- and 3-element vectors are shown and read:
+/// as x and y (and z), or as a length and angles.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Coord {
+    Rect,
+    Cylin,
+    Sphere,
+}
+
+impl Coord {
+    pub fn name(self) -> &'static str {
+        match self {
+            Coord::Rect => "RECT",
+            Coord::Cylin => "CYLIN",
+            Coord::Sphere => "SPHERE",
+        }
+    }
+}
+
 thread_local! {
     static BASE: Cell<Base> = const { Cell::new(Base::Dec) };
+    /// The coordinate system, and the size in radians of the angle unit.
+    static COORD: Cell<(Coord, f64)> = const { Cell::new((Coord::Rect, 1.0)) };
+}
+
+pub fn coord() -> (Coord, f64) {
+    COORD.with(Cell::get)
+}
+
+pub fn set_coord(c: Coord, unit: f64) {
+    COORD.with(|k| k.set((c, unit)));
+}
+
+/// Rectangular components from polar ones read in the current angle unit:
+/// [ r ∠θ ], [ r ∠θ z ], or [ r ∠θ ∠φ ] with φ measured from the z axis.
+pub fn from_polar(r: f64, theta: f64, third: Option<(f64, bool)>) -> Vec<f64> {
+    let u = coord().1;
+    let t = theta * u;
+    // [ 1 ∠90 ] is [ 0 1 ], not 6.1E-17 for the cosine of a right angle.
+    let snap = |v: Vec<f64>| {
+        v.into_iter()
+            .map(|x| if x.abs() < r.abs() * 1e-14 { 0.0 } else { x })
+            .collect()
+    };
+    snap(match third {
+        None => vec![r * t.cos(), r * t.sin()],
+        Some((z, false)) => vec![r * t.cos(), r * t.sin(), z],
+        Some((phi, true)) => {
+            let p = phi * u;
+            vec![r * p.sin() * t.cos(), r * p.sin() * t.sin(), r * p.cos()]
+        }
+    })
 }
 
 /// The current base, which display and parsing both follow. It lives here
@@ -168,6 +218,14 @@ impl Obj {
 fn write_obj(out: &mut String, o: &Obj, fmt: Fmt, top: bool) {
     match o {
         Obj::Real(x) => out.push_str(&fmt_real(*x, fmt)),
+        Obj::Complex(re, im) if coord().0 != Coord::Rect => {
+            let u = coord().1;
+            out.push('(');
+            out.push_str(&fmt_real(r12(re.hypot(*im)), fmt));
+            out.push_str(",∠");
+            out.push_str(&fmt_real(r12(im.atan2(*re) / u), fmt));
+            out.push(')');
+        }
         Obj::Complex(re, im) => {
             out.push('(');
             out.push_str(&fmt_real(*re, fmt));
@@ -252,7 +310,37 @@ fn write_obj(out: &mut String, o: &Obj, fmt: Fmt, top: bool) {
     }
 }
 
+/// A 2- or 3-element vector's components in the current coordinate system,
+/// each marked when it is an angle; None in rectangular mode.
+pub fn to_polar(r: &[f64]) -> Option<Vec<(f64, bool)>> {
+    let (c, u) = coord();
+    if c == Coord::Rect || !(r.len() == 2 || r.len() == 3) {
+        return None;
+    }
+    let rho = r[0].hypot(r[1]);
+    let theta = r[1].atan2(r[0]) / u;
+    let parts = match (r.get(2), c) {
+        (None, _) => vec![(rho, false), (theta, true)],
+        (Some(&z), Coord::Cylin) => vec![(rho, false), (theta, true), (z, false)],
+        (Some(&z), _) => vec![
+            (rho.hypot(z), false),
+            (theta, true),
+            (rho.atan2(z) / u, true),
+        ],
+    };
+    Some(parts.into_iter().map(|(x, a)| (r12(x), a)).collect())
+}
+
 fn write_row(out: &mut String, r: &[f64], fmt: Fmt) {
+    if let Some(parts) = to_polar(r) {
+        out.push('[');
+        for (x, angle) in parts {
+            out.push_str(if angle { " ∠" } else { " " });
+            out.push_str(&fmt_real(x, fmt));
+        }
+        out.push_str(" ]");
+        return;
+    }
     out.push('[');
     for x in r {
         out.push(' ');

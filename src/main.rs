@@ -34,7 +34,7 @@ use ratatui::layout::Rect;
 use calc::{Angle, Calc, Error, Snapshot};
 use keypad::{Act, Key, Shift};
 use menu::Menu;
-use obj::{Fmt, Obj};
+use obj::{Coord, Fmt, Obj};
 use parse::{is_open, parse, parse_num};
 use pause::{Pause, PauseFn};
 
@@ -400,6 +400,11 @@ impl App {
                 "DEG"
             } else {
                 "RAD"
+            }),
+            Act::PolarToggle => self.exec(if self.calc.coord == Coord::Rect {
+                "CYLIN"
+            } else {
+                "RECT"
             }),
             Act::Shift(s) => self.shift = if self.shift == Some(s) { None } else { Some(s) },
             Act::Cancel if self.input => self.resume = Some(Resume::Kill),

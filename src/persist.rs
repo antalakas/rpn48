@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::calc::{Angle, Calc};
-use crate::obj::{Base, Fmt, Node, Obj};
+use crate::obj::{Base, Coord, Fmt, Node, Obj, coord, set_coord};
 use crate::parse::parse;
 
 /// $XDG_DATA_HOME/rpn48/memory, or ~/.local/share/rpn48/memory.
@@ -43,7 +43,11 @@ pub fn save(calc: &Calc, path: &Path) -> io::Result<()> {
         Obj::Bin(calc.flags[0]),
         Obj::Bin(calc.flags[1]),
         Obj::List(calc.path.iter().map(|d| Obj::Name(d.clone())).collect()),
+        Obj::Str(calc.coord.name().into()),
     ];
+    // Written in rectangular form, which reads back whatever the modes.
+    let shown = coord();
+    set_coord(Coord::Rect, 1.0);
     let text = [
         Obj::List(calc.stack.clone()),
         Obj::List(vars),
@@ -51,6 +55,7 @@ pub fn save(calc: &Calc, path: &Path) -> io::Result<()> {
     ]
     .map(|o| o.show(Fmt::Std) + "\n")
     .concat();
+    set_coord(shown.0, shown.1);
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -87,11 +92,11 @@ pub fn load(calc: &mut Calc, path: &Path) -> Result<(), String> {
         return Err("bad modes".into());
     };
     let n = *n as u8;
-    calc.angle = match angle.as_str() {
+    calc.set_angle(match angle.as_str() {
         "RAD" => Angle::Rad,
         "GRAD" => Angle::Grad,
         _ => Angle::Deg,
-    };
+    });
     calc.fmt = match kind.as_str() {
         "FIX" => Fmt::Fix(n),
         "SCI" => Fmt::Sci(n),
@@ -106,8 +111,15 @@ pub fn load(calc: &mut Calc, path: &Path) -> Result<(), String> {
         Obj::Bin(user),
         Obj::Bin(sys),
         Obj::List(path),
+        rest @ ..,
     ] = more
     {
+        // The coordinate system came later still.
+        calc.set_coord(match rest {
+            [Obj::Str(c), ..] if c == "CYLIN" => Coord::Cylin,
+            [Obj::Str(c), ..] if c == "SPHERE" => Coord::Sphere,
+            _ => Coord::Rect,
+        });
         calc.set_base(match base.as_str() {
             "HEX" => Base::Hex,
             "OCT" => Base::Oct,
@@ -141,7 +153,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rpn48-test-{}", std::process::id()));
         let path = dir.join("memory");
         let mut c = Calc::new();
-        c.exec_line("RAD 4 FIX π 1 3 / (1,-2) \"say \\\"hi\\\"\" { A 1 { } } 'X' « → a « a 'Y' STO » » 'P' STO 7 'N' STO")
+        c.exec_line("RAD CYLIN 4 FIX π 1 3 / (1,-2) \"say \\\"hi\\\"\" { A 1 { } } 'X' « → a « a 'Y' STO » » 'P' STO 7 'N' STO")
             .unwrap();
         c.exec_line("'X^2+1' [[1 2][3 4]] :T:5 1_J/(kg*K) -40_°F HEX 16 STWS #FFh 5 SF -3 SF 'D' CRDIR D 'E' CRDIR E 9 'Z' STO")
             .unwrap();
@@ -154,5 +166,6 @@ mod tests {
         assert_eq!((d.angle, d.fmt), (Angle::Rad, Fmt::Fix(4)));
         assert_eq!((d.base, d.wordsize, d.flags), (Base::Hex, 16, [16, 4]));
         assert_eq!(d.path, ["D", "E"]);
+        assert_eq!(d.coord, crate::obj::Coord::Cylin);
     }
 }

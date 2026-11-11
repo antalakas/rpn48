@@ -1,7 +1,7 @@
 //! Real vectors and matrices.
 
 use crate::calc::{Calc, Error, OpFn, Res, index, one, op, real_of};
-use crate::obj::{Obj, r12};
+use crate::obj::{Coord, Obj, from_polar, r12, to_polar};
 
 type M = Vec<Vec<f64>>;
 
@@ -361,16 +361,28 @@ pub fn pure(w: &str) -> Option<(usize, OpFn)> {
             ));
             Ok(out)
         }),
+        // In polar modes these take and give a length and angles.
         "V→" => op(1, |_, a| {
-            Ok(vec_of(&a[0])?.iter().map(|x| Real(*x)).collect())
+            let v = vec_of(&a[0])?;
+            Ok(match to_polar(&v) {
+                Some(p) => p.iter().map(|x| Real(x.0)).collect(),
+                None => v.iter().map(|x| Real(*x)).collect(),
+            })
         }),
-        "→V2" => op(2, |_, a| one(vect(vec![real_of(&a[0])?, real_of(&a[1])?]))),
-        "→V3" => op(3, |_, a| {
-            one(vect(vec![
-                real_of(&a[0])?,
-                real_of(&a[1])?,
-                real_of(&a[2])?,
-            ]))
+        "→V2" => op(2, |c, a| {
+            let (x, y) = (real_of(&a[0])?, real_of(&a[1])?);
+            one(vect(match c.coord {
+                Coord::Rect => vec![x, y],
+                _ => from_polar(x, y, None),
+            }))
+        }),
+        "→V3" => op(3, |c, a| {
+            let (x, y, z) = (real_of(&a[0])?, real_of(&a[1])?, real_of(&a[2])?);
+            one(vect(match c.coord {
+                Coord::Rect => vec![x, y, z],
+                Coord::Cylin => from_polar(x, y, Some((z, false))),
+                Coord::Sphere => from_polar(x, y, Some((z, true))),
+            }))
         }),
         _ => None,
     }
@@ -404,6 +416,20 @@ mod tests {
         let mut c = Calc::new();
         c.exec_line(src).unwrap();
         c.stack.iter().map(|o| o.show(c.fmt)).collect()
+    }
+
+    #[test]
+    fn polar() {
+        assert_eq!(
+            run("CYLIN (1,1) [3 4]"),
+            ["(1.41421356237,∠45)", "[ 5 ∠53.1301023542 ]"]
+        );
+        assert_eq!(run("(2,∠90) [ 1 ∠90 ]"), ["(0,2)", "[ 0 1 ]"]);
+        assert_eq!(
+            run("SPHERE [0 0 2] 1 90 90 →V3 V→"),
+            ["[ 2 ∠0 ∠0 ]", "1", "90", "90"]
+        );
+        assert_eq!(run("CYLIN 2 90 →V2 RECT"), ["[ 0 2 ]"]);
     }
 
     #[test]

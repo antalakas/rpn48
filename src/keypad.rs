@@ -44,6 +44,8 @@ pub enum Act {
     NextPage,
     PrevPage,
     AngleToggle,
+    /// Between rectangular and polar display, as POLAR does.
+    PolarToggle,
     Shift(Shift),
     Cancel,
     Off,
@@ -97,7 +99,7 @@ pub static ROWS: [&[Key]; 9] = [
             "MTH",
             Menu(Menu::Mth),
             ("RAD", AngleToggle),
-            ("POLAR", Unsupported),
+            ("POLAR", PolarToggle),
         ),
         key("PRG", Menu(Menu::Prg), ("CHARS", Unsupported), NONE),
         key("CST", Menu(Menu::Cst), ("MODES", Menu(Menu::Modes)), NONE),
@@ -186,7 +188,7 @@ pub static ROWS: [&[Key]; 9] = [
         key("ON", Cancel, ("CONT", Cmd("CONT")), ("OFF", Off)),
         key("0", Text("0", 0), ("=", Text("=", 0)), ("→", Text("→ ", 0))),
         key(".", Text(".", 0), (",", Text(",", 0)), ("↵", Unsupported)),
-        key("SPC", Text(" ", 0), ("π", Cmd("π")), ("∠", Unsupported)),
+        key("SPC", Text(" ", 0), ("π", Cmd("π")), ("∠", Text("∠", 0))),
         key(
             "+",
             Op('+'),

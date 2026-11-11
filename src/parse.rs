@@ -2,7 +2,7 @@
 
 use crate::alg::{Expr, parse_alg};
 use crate::calc::{Error, Res};
-use crate::obj::{Base, Node, Obj, base, r12};
+use crate::obj::{Base, Node, Obj, base, from_polar, r12};
 use crate::units::{Units, parse_units};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,6 +14,8 @@ enum Tok {
     Alg(Expr),
     Bin(u64),
     Unit(f64, Units),
+    /// A component of a vector written in polar form, [ 1 ∠90 ].
+    Angle(f64),
     Tag(String),
     LBrack,
     RBrack,
@@ -152,14 +154,25 @@ fn tokenize(src: &str) -> Res<Vec<Tok>> {
                     .split(|c: char| c == ',' || c.is_whitespace())
                     .filter(|p| !p.is_empty())
                     .collect();
-                let [re, im] = parts[..] else {
-                    return Err(Error::Syntax);
+                // (x,y), or in polar form (r,∠θ).
+                let (re, im, polar) = match parts[..] {
+                    [re, "∠", im] => (re, im, true),
+                    [re, im] => match im.strip_prefix('∠') {
+                        Some(im) => (re, im, true),
+                        None => (re, im, false),
+                    },
+                    _ => return Err(Error::Syntax),
                 };
                 let (re, im) = (
                     parse_num(re).ok_or(Error::Syntax)?,
                     parse_num(im).ok_or(Error::Syntax)?,
                 );
-                out.push(Tok::Cplx(re, im));
+                out.push(if polar {
+                    let p = from_polar(re, im, None);
+                    Tok::Cplx(r12(p[0]), r12(p[1]))
+                } else {
+                    Tok::Cplx(re, im)
+                });
                 i += len + 2;
             }
             '{' | '}' | '«' | '»' | '[' | ']' => {
@@ -220,6 +233,8 @@ fn tokenize(src: &str) -> Res<Vec<Tok>> {
                 let w: String = cs[start..i].iter().collect();
                 if let Some(x) = parse_num(&w) {
                     out.push(Tok::Num(x));
+                } else if let Some(x) = w.strip_prefix('∠').and_then(parse_num) {
+                    out.push(Tok::Angle(x));
                 } else if let Some((x, u)) = w.split_once('_')
                     && let Some(x) = parse_num(x)
                 {
@@ -242,6 +257,18 @@ fn parse_bin(w: &str) -> Option<u64> {
         _ => (w, base()),
     };
     u64::from_str_radix(digits, b.radix()).ok()
+}
+
+/// A vector's components, the angles (∠) among them converted from polar
+/// or spherical form.
+fn polar_row(r: &[(f64, bool)]) -> Res<Vec<f64>> {
+    let rect = |v: Vec<f64>| v.into_iter().map(r12).collect();
+    match *r {
+        _ if r.iter().all(|c| !c.1) => Ok(r.iter().map(|c| c.0).collect()),
+        [(rho, false), (t, true)] => Ok(rect(from_polar(rho, t, None))),
+        [(rho, false), (t, true), third] => Ok(rect(from_polar(rho, t, Some(third)))),
+        _ => Err(Error::Syntax),
+    }
 }
 
 /// Parses a command line (or the source of a program) into the steps to run.
@@ -442,7 +469,9 @@ impl Parser {
                 };
                 Obj::Tag(t, Box::new(o))
             }
-            Tok::RBrace | Tok::RProg | Tok::RBrack | Tok::Word(_) => return Err(Error::Syntax),
+            Tok::RBrace | Tok::RProg | Tok::RBrack | Tok::Angle(_) | Tok::Word(_) => {
+                return Err(Error::Syntax);
+            }
         })
     }
 
@@ -454,8 +483,9 @@ impl Parser {
                 let tok = p.toks.get(p.i).cloned().ok_or(Error::Syntax)?;
                 p.i += 1;
                 match tok {
-                    Tok::Num(x) => r.push(x),
-                    Tok::RBrack => return Ok(r),
+                    Tok::Num(x) => r.push((x, false)),
+                    Tok::Angle(x) => r.push((x, true)),
+                    Tok::RBrack => return polar_row(&r),
                     _ => return Err(Error::Syntax),
                 }
             }

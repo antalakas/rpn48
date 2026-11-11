@@ -110,6 +110,7 @@ const ERROR: &[&str] = &["DOERR", "ERRN", "ERRM", "ERR0", "IFERR", "LASTARG"];
 const MODES: &[&str] = &[
     "STD", "FIX", "SCI", "ENG", "FLAG", "BASE", //
     "DEG", "RAD", "GRAD", "HEX", "DEC", "BIN", //
+    "RECT", "CYLIN", "SPHERE", //
 ];
 const FLAG: &[&str] = &["SF", "CF", "FS?", "FC?", "FS?C", "FC?C"];
 const MEMORY: &[&str] = &[

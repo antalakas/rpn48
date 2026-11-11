@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, BorderType, Paragraph};
 
 use crate::App;
 use crate::keypad::{self, Act, Shift};
-use crate::obj::Fmt;
+use crate::obj::{Coord, Fmt};
 
 const LEFT_SHIFT: Color = Color::Magenta;
 const RIGHT_SHIFT: Color = Color::Green;
@@ -62,7 +62,17 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
         Fmt::Eng(n) => format!("ENG {n}"),
     };
     let halt = if calc.halted > 0 { "HALT  " } else { "" };
-    let modes = format!("{halt}{}  {}  {fmt}", calc.angle.name(), calc.base.name());
+    // The calculator's annunciators for polar modes.
+    let coord = match calc.coord {
+        Coord::Rect => "",
+        Coord::Cylin => "R∠Z  ",
+        Coord::Sphere => "R∠∠  ",
+    };
+    let modes = format!(
+        "{halt}{}  {coord}{}  {fmt}",
+        calc.angle.name(),
+        calc.base.name()
+    );
     let path = format!(
         "{{ HOME {}}}",
         calc.path
