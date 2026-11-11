@@ -13,15 +13,22 @@ use crate::App;
 use crate::keypad::{self, Act, Shift};
 use crate::obj::{Coord, Fmt, fmt_real, r12};
 use crate::plot::{Plot, Shape};
+use crate::pretty::{self, Pic};
+use crate::writer::MatrixWriter;
 
 const LEFT_SHIFT: Color = Color::Magenta;
 const RIGHT_SHIFT: Color = Color::Green;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let (display, keys) = keypad::split(f.area());
-    match &app.calc.plot {
-        Some(p) => draw_plot(f, p, &app.calc.pict, app.calc.fmt, display),
-        None => draw_display(f, app, display),
+    if let Some(p) = &app.calc.plot {
+        draw_plot(f, p, &app.calc.pict, app.calc.fmt, display);
+    } else if let Some(m) = &app.matrix {
+        draw_matrix(f, m, display);
+    } else if let Some((pic, r, c)) = &app.view {
+        draw_view(f, pic, *r, *c, display);
+    } else {
+        draw_display(f, app, display);
     }
     if let Some(area) = keys {
         draw_keys(f, app, area);
@@ -33,6 +40,8 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
     // Key hints go in the bottom border, so every row inside is the calculator's.
     let hints = if app.stack_sel.is_some() {
         " STACK · ↑↓ level · ENTER echo · p pick · r roll · d rolld · Del drop · Esc back ".into()
+    } else if app.eqw {
+        " EQUATION · ENTER enter · Esc cancel ".into()
     } else {
         format!(
             " {} {}/{} · Tab more · ^E edit · ^Z undo · ^Q quit ",
@@ -119,12 +128,22 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // Stack levels fill whatever the other rows leave, highest level at the top.
-    let cmd_rows = u16::from(!app.line.is_empty());
+    let cmd_rows = u16::from(!app.line.is_empty() || app.eqw);
     let levels = inner.height.saturating_sub(y + cmd_rows + 1);
-    // What DISP put up covers the stack, one line each from the top.
+    // The equation writer's picture of the line, or what DISP put up, covers
+    // the stack, one line each from the top.
+    let cover = if app.eqw {
+        let pic = equation_preview(app, w);
+        let pad = (levels as usize).saturating_sub(pic.len()) / 2;
+        let mut lines = vec![String::new(); pad];
+        lines.extend(pic);
+        lines
+    } else {
+        calc.disp.clone()
+    };
     for r in 0..levels {
-        if !calc.disp.is_empty() {
-            let text = calc.disp.get(r as usize).map_or("", |s| s.as_str());
+        if !cover.is_empty() {
+            let text = cover.get(r as usize).map_or("", |s| s.as_str());
             f.render_widget(Paragraph::new(fit(text, w)), row(y));
             y += 1;
             continue;
@@ -171,6 +190,112 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
         labels.push(Span::styled(center(&fit(label, cell), cell), style));
     }
     f.render_widget(Paragraph::new(Line::from(labels)), row(y));
+}
+
+/// The algebraic typed so far, drawn out and centred; while it does not
+/// read (half typed), as much of it as does, with the open parentheses
+/// closed.
+fn equation_preview(app: &App, w: usize) -> Vec<String> {
+    let line: String = app.line.iter().collect();
+    let fmt = app.calc.fmt;
+    let open = line
+        .matches('(')
+        .count()
+        .saturating_sub(line.matches(')').count());
+    let closed = format!("{line}{}", ")".repeat(open));
+    let pic = match crate::alg::parse_alg(&closed) {
+        Ok(e) => pretty::expr(&e, fmt),
+        Err(_) => return vec![center(&line, w)],
+    };
+    let pad = w.saturating_sub(pic.width()) / 2;
+    pic.lines()
+        .iter()
+        .map(|l| format!("{}{l}", " ".repeat(pad)))
+        .collect()
+}
+
+/// VIEW: the picture, scrolled, in a box of its own.
+fn draw_view(f: &mut Frame, pic: &Pic, r: usize, c: usize, area: Rect) {
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(" VIEW ")
+        .title_bottom(Line::from(" ←→↑↓ scroll · any other key back ").dim());
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let lines = pic.lines();
+    let (h, w) = (inner.height as usize, inner.width as usize);
+    // Centred when it fits, scrolled from the corner when it does not.
+    let top = if lines.len() <= h {
+        (h - lines.len()) / 2
+    } else {
+        0
+    };
+    let left = w.saturating_sub(pic.width()) / 2;
+    let r = r.min(lines.len().saturating_sub(h));
+    let c = c.min(pic.width().saturating_sub(w));
+    let text: Vec<Line> = std::iter::repeat_n(Line::raw(""), top)
+        .chain(lines.iter().skip(r).map(|l| {
+            let shown: String = l.chars().skip(c).take(w).collect();
+            Line::raw(format!("{}{shown}", " ".repeat(left)))
+        }))
+        .collect();
+    f.render_widget(Paragraph::new(text), inner);
+}
+
+/// The matrix writer: column and row numbers, the cells, the one under the
+/// cursor inverted, and what is being typed into it at the bottom.
+fn draw_matrix(f: &mut Frame, m: &MatrixWriter, area: Rect) {
+    const CELL: usize = 10;
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(" MATRIX ")
+        .title_bottom(
+            Line::from(" type · ENTER cell/done · ←→↑↓ move · Del row · Esc cancel ").dim(),
+        );
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let (h, w) = (inner.height as usize, inner.width as usize);
+    if h < 4 || w < CELL + 4 {
+        return;
+    }
+    let (cols, rows) = ((w - 4) / (CELL + 1), h - 3);
+    // Scrolled to keep the cursor in view.
+    let c0 = (m.col + 1).saturating_sub(cols);
+    let r0 = (m.row + 1).saturating_sub(rows);
+    let mut lines = vec![];
+    let mut head = vec![Span::raw("    ")];
+    for j in c0..c0 + cols {
+        head.push(Span::raw(format!("{:>CELL$} ", j + 1)).dim());
+    }
+    lines.push(Line::from(head));
+    for i in r0..r0 + rows {
+        let mut spans = vec![Span::raw(format!("{:>3} ", i + 1)).dim()];
+        for j in c0..c0 + cols {
+            let here = (i, j) == (m.row, m.col);
+            let text = match (here, &m.edit) {
+                (true, Some(e)) => format!("{e}_"),
+                _ => m
+                    .cells
+                    .get(i)
+                    .and_then(|r| r.get(j))
+                    .cloned()
+                    .unwrap_or_default(),
+            };
+            let style = if here {
+                Style::new().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::new()
+            };
+            spans.push(Span::styled(format!("{:>CELL$}", fit(&text, CELL)), style));
+            spans.push(Span::raw(" "));
+        }
+        lines.push(Line::from(spans));
+    }
+    let size = format!("{}×{}", m.cells.len(), m.width());
+    let edit = m.edit.as_deref().map_or(String::new(), |e| format!("{e}_"));
+    lines.push(Line::raw(""));
+    lines.push(Line::raw(spread(&edit, &size, w)));
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 // The plot fills the display, axes dimmed, with the cursor's coordinates in

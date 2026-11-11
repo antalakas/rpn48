@@ -16,6 +16,7 @@ mod parse;
 mod pause;
 mod persist;
 mod plot;
+mod pretty;
 mod rearrange;
 mod solve;
 mod stat;
@@ -23,6 +24,7 @@ mod symbolic;
 mod transfer;
 mod ui;
 mod units;
+mod writer;
 
 use std::cell::{Cell, RefCell};
 use std::io;
@@ -44,6 +46,8 @@ use menu::Menu;
 use obj::{Coord, Fmt, Obj};
 use parse::{is_open, parse, parse_num};
 use pause::{Pause, PauseFn};
+use pretty::Pic;
+use writer::MatrixWriter;
 
 const USAGE: &str = "\
 usage: rpn48            start the calculator
@@ -347,6 +351,11 @@ pub struct App {
     pub entry: bool,
     /// The level the interactive stack has picked.
     pub stack_sel: Option<usize>,
+    pub matrix: Option<MatrixWriter>,
+    /// What VIEW is showing, and how far it is scrolled (rows, columns).
+    pub view: Option<(Pic, usize, usize)>,
+    /// The equation writer: the line is an algebraic, drawn out as it is typed.
+    pub eqw: bool,
 }
 
 impl App {
@@ -392,6 +401,9 @@ impl App {
             resume: None,
             entry: false,
             stack_sel: None,
+            matrix: None,
+            view: None,
+            eqw: false,
         }
     }
 
@@ -405,6 +417,20 @@ impl App {
         }
         if self.stack_sel.is_some() {
             return self.stack_key(k.code);
+        }
+        if self.matrix.is_some() || self.view.is_some() {
+            // Of the control keys only quitting works here.
+            if k.modifiers.contains(KeyModifiers::CONTROL) {
+                self.quit |= matches!(k.code, KeyCode::Char('q' | 'c'));
+            } else if self.matrix.is_some() {
+                self.matrix_key(k.code);
+            } else {
+                self.view_key(k.code);
+            }
+            return;
+        }
+        if self.eqw && self.equation_key(&k) {
+            return;
         }
         if self.calc.user_mode()
             && let Some((key, plane)) = typed_key(&k)
@@ -420,6 +446,9 @@ impl App {
             KeyCode::Char('z') if ctrl => Act::Undo,
             KeyCode::Char('e') if ctrl => Act::Edit,
             KeyCode::Char('s') if ctrl => Act::Stack,
+            KeyCode::Char('v') if ctrl => Act::View,
+            KeyCode::Char('w') if ctrl => Act::Equation,
+            KeyCode::Char('t') if ctrl => Act::Matrix,
             KeyCode::Char('u') if ctrl => Act::Cancel,
             KeyCode::Char(_) if ctrl => Act::Nothing,
             KeyCode::Char(c) => return self.type_char(c),
@@ -457,7 +486,7 @@ impl App {
         }
         self.unfreeze();
         self.message = None;
-        if self.calc.plot.take().is_some() {
+        if self.calc.plot.take().is_some() || self.view.take().is_some() || self.matrix.is_some() {
             return;
         }
         let plane = match self.shift {
@@ -511,7 +540,7 @@ impl App {
             Act::Cmd(c) => self.command(c),
             // The keyboard has +/- for signs, so its - key subtracts even on an
             // empty line.
-            Act::Op(c) if empty => self.exec(&c.to_string()),
+            Act::Op(c) if empty && !self.eqw => self.exec(&c.to_string()),
             Act::Op(c) => self.type_char(c),
             Act::Text(s, back) => {
                 self.line.splice(self.cur..self.cur, s.chars());
@@ -557,6 +586,13 @@ impl App {
             Act::EntryToggle => self.entry = !self.entry,
             Act::Stack if !self.calc.stack.is_empty() => self.stack_sel = Some(1),
             Act::Stack => {}
+            Act::View if self.eqw => {}
+            Act::View => self.view_level(),
+            Act::Matrix => self.matrix = Some(MatrixWriter::new(vec![], false)),
+            Act::Equation => {
+                self.clear_line();
+                self.eqw = true;
+            }
             Act::PolarToggle => self.exec(if self.calc.coord == Coord::Rect {
                 "CYLIN"
             } else {
@@ -602,7 +638,7 @@ impl App {
     // keys do: 2 ENTER 3 + gives 5. A '-' on an empty line starts a negative
     // number instead, and nothing runs inside an unfinished program or string.
     fn type_char(&mut self, c: char) {
-        if "+-*/^".contains(c) && self.cur == self.line.len() {
+        if "+-*/^".contains(c) && self.cur == self.line.len() && !self.eqw {
             let line: String = self.line.iter().collect();
             let last = line.split_whitespace().last().unwrap_or("");
             let now = if line.trim().is_empty() {
@@ -683,6 +719,21 @@ impl App {
     // A command key runs its command after the command line, except while a
     // program is being typed, where the command's name goes into the text.
     fn command(&mut self, cmd: &str) {
+        // In the equation writer a function key types the function, ready
+        // for its argument.
+        if self.eqw {
+            let func = cmd
+                .chars()
+                .all(|c| c.is_alphanumeric() || "√∂∫Σ".contains(c));
+            let (text, back) = if func {
+                (format!("{cmd}()"), 1)
+            } else {
+                (cmd.to_string(), 0)
+            };
+            self.line.splice(self.cur..self.cur, text.chars());
+            self.cur += text.chars().count() - back;
+            return;
+        }
         if self.input || self.entry || is_open(&self.line.iter().collect::<String>()) {
             let text = format!(" {cmd} ");
             self.line.splice(self.cur..self.cur, text.chars());
@@ -793,6 +844,85 @@ impl App {
             return false;
         };
         self.run_obj(o);
+        true
+    }
+
+    /// VIEW: an array goes to the matrix writer to edit; anything else is
+    /// drawn out to look at.
+    fn view_level(&mut self) {
+        if !self.line.is_empty() {
+            self.exec("");
+        }
+        let Some(o) = self.calc.stack.last() else {
+            return self.message = Some(Error::TooFewArgs.report());
+        };
+        match pretty::cells(o, Fmt::Std) {
+            Some(cells) => self.matrix = Some(MatrixWriter::new(cells, true)),
+            None => self.view = Some((pretty::view(o, self.calc.fmt), 0, 0)),
+        }
+    }
+
+    fn view_key(&mut self, code: KeyCode) {
+        let Some((_, r, c)) = &mut self.view else {
+            return;
+        };
+        match code {
+            KeyCode::Up => *r = r.saturating_sub(1),
+            KeyCode::Down => *r += 1,
+            KeyCode::Left => *c = c.saturating_sub(4),
+            KeyCode::Right => *c += 4,
+            _ => self.view = None,
+        }
+    }
+
+    fn matrix_key(&mut self, code: KeyCode) {
+        let Some(m) = &mut self.matrix else { return };
+        match m.key(code) {
+            writer::Done::Not => {}
+            writer::Done::Cancel => self.matrix = None,
+            writer::Done::Enter(src) => {
+                let replace = m.replace;
+                self.matrix = None;
+                self.exec(&format!("{} {src}", if replace { "DROP" } else { "" }));
+            }
+        }
+    }
+
+    /// Keys the equation writer takes itself: text goes into the line as it
+    /// is, ENTER enters it as an algebraic and Esc leaves.
+    fn equation_key(&mut self, k: &KeyEvent) -> bool {
+        let empty = self.line.is_empty();
+        match k.code {
+            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.line.insert(self.cur, c);
+                self.cur += 1;
+            }
+            KeyCode::Enter if empty => self.eqw = false,
+            // Parentheses left open are closed, as the preview shows them.
+            KeyCode::Enter => {
+                let src: String = self.line.iter().collect();
+                let open = src
+                    .matches('(')
+                    .count()
+                    .saturating_sub(src.matches(')').count());
+                self.clear_line();
+                self.exec(&format!("'{src}{}'", ")".repeat(open)));
+                if self.message.is_some() {
+                    self.line = src.chars().collect();
+                    self.cur = self.line.len();
+                } else {
+                    self.eqw = false;
+                }
+            }
+            KeyCode::Esc => {
+                self.clear_line();
+                self.eqw = false;
+            }
+            // Nothing on the stack is touched from here.
+            KeyCode::Backspace | KeyCode::Right | KeyCode::Up | KeyCode::Down if empty => {}
+            KeyCode::Up | KeyCode::Down => {}
+            _ => return false,
+        }
         true
     }
 

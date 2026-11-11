@@ -52,6 +52,12 @@ pub enum Act {
     EntryToggle,
     /// The interactive stack.
     Stack,
+    /// VIEW: level 1 drawn out, or for an array, the matrix writer on it.
+    View,
+    /// The equation writer.
+    Equation,
+    /// The matrix writer, for a new array.
+    Matrix,
     Shift(Shift),
     Cancel,
     Off,
@@ -128,7 +134,7 @@ pub static ROWS: [&[Key]; 9] = [
         ),
         key("EVAL", Cmd("EVAL"), ("→NUM", Cmd("→NUM")), ("UNDO", Undo)),
         key("◀", Left, ("PICTURE", Cmd("DRAW")), NONE),
-        key("▼", Down, ("VIEW", Unsupported), NONE),
+        key("▼", Down, ("VIEW", View), NONE),
         key("▶", Right, ("SWAP", Cmd("SWAP")), NONE),
     ],
     &[
@@ -142,12 +148,7 @@ pub static ROWS: [&[Key]; 9] = [
     &[
         Key {
             units: 2,
-            ..key(
-                "ENTER",
-                Enter,
-                ("EQUATION", Unsupported),
-                ("MATRIX", Unsupported),
-            )
+            ..key("ENTER", Enter, ("EQUATION", Equation), ("MATRIX", Matrix))
         },
         key("+/-", Neg, ("EDIT", Edit), ("CMD", Up)),
         key(
