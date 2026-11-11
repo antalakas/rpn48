@@ -12,7 +12,7 @@ use ratatui::widgets::{Block, BorderType, Paragraph};
 use crate::App;
 use crate::keypad::{self, Act, Shift};
 use crate::obj::{Coord, Fmt, fmt_real, r12};
-use crate::plot::Plot;
+use crate::plot::{Plot, Shape};
 
 const LEFT_SHIFT: Color = Color::Magenta;
 const RIGHT_SHIFT: Color = Color::Green;
@@ -20,7 +20,7 @@ const RIGHT_SHIFT: Color = Color::Green;
 pub fn draw(f: &mut Frame, app: &App) {
     let (display, keys) = keypad::split(f.area());
     match &app.calc.plot {
-        Some(p) => draw_plot(f, p, app.calc.fmt, display),
+        Some(p) => draw_plot(f, p, &app.calc.pict, app.calc.fmt, display),
         None => draw_display(f, app, display),
     }
     if let Some(area) = keys {
@@ -155,7 +155,7 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
 
 // The plot fills the display, axes dimmed, with the cursor's coordinates in
 // the bottom border.
-fn draw_plot(f: &mut Frame, p: &Plot, fmt: Fmt, area: Rect) {
+fn draw_plot(f: &mut Frame, p: &Plot, pict: &[Shape], fmt: Fmt, area: Rect) {
     let num = |x: f64| fmt_real(r12(x), fmt);
     let (cx, cy) = p.cursor;
     let hints = format!(
@@ -188,15 +188,26 @@ fn draw_plot(f: &mut Frame, p: &Plot, fmt: Fmt, area: Rect) {
             let w = (x1 - x0) * top.chars().count() as f64 / cols;
             ctx.print(x1 - w, y1, Span::raw(top).dim());
             ctx.layer();
-            for c in &p.curves {
-                for s in c.windows(2) {
-                    ctx.draw(&CLine::new(s[0].0, s[0].1, s[1].0, s[1].1, Color::Cyan));
+            for s in pict {
+                match s {
+                    Shape::Curve(c) => {
+                        for s in c.windows(2) {
+                            ctx.draw(&CLine::new(s[0].0, s[0].1, s[1].0, s[1].1, Color::Cyan));
+                        }
+                    }
+                    Shape::Points(pts) => ctx.draw(&Points {
+                        coords: pts,
+                        color: Color::Yellow,
+                    }),
+                    Shape::Bars(bars) => {
+                        for &(a, b, h) in bars {
+                            for (x0, y0, x1, y1) in [(a, 0.0, a, h), (a, h, b, h), (b, h, b, 0.0)] {
+                                ctx.draw(&CLine::new(x0, y0, x1, y1, Color::Cyan));
+                            }
+                        }
+                    }
                 }
             }
-            ctx.draw(&Points {
-                coords: &p.points,
-                color: Color::Yellow,
-            });
             ctx.layer();
             let (dx, dy) = ((x1 - x0) / 60.0, (y1 - y0) / 30.0);
             ctx.draw(&CLine::new(cx - dx, cy, cx + dx, cy, LEFT_SHIFT));

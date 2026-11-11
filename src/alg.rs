@@ -10,7 +10,8 @@ pub enum Expr {
     Num(f64),
     Name(String),
     Neg(Box<Expr>),
-    /// A binary operator: + - * / ^ or = for equations.
+    /// A binary operator: + - * / ^, = for equations, or a comparison
+    /// < > ≤ ≥ ≠, with ≡ standing for ==.
     Op(char, Box<Expr>, Box<Expr>),
     /// A function applied to its arguments, SIN(X) or a user function F(X,Y).
     Fn(String, Vec<Expr>),
@@ -36,8 +37,26 @@ pub const SYMBOLIC: &[&str] = &[
     "+", "-", "*", "/", "^", "NEG", "INV", "SQ", "√", "ABS", "SIGN", "IP", "FP", "FLOOR", "CEIL",
     "MOD", "MIN", "MAX", "%", "XROOT", "!", "SIN", "COS", "TAN", "ASIN", "ACOS", "ATAN", "SINH",
     "COSH", "TANH", "ASINH", "ACOSH", "ATANH", "LN", "LOG", "EXP", "ALOG", "LNP1", "EXPM", "RE",
-    "IM", "CONJ", "ARG",
+    "IM", "CONJ", "ARG", "<", ">", "≤", "≥", "==", "≠",
 ];
+
+/// The command an operator runs: == for ≡, otherwise its own character.
+pub fn op_word(c: char) -> String {
+    if c == '≡' {
+        "==".into()
+    } else {
+        c.to_string()
+    }
+}
+
+/// The operator for command `w`, if it is one.
+fn word_op(w: &str) -> Option<char> {
+    match w {
+        "==" => Some('≡'),
+        _ if w.chars().count() == 1 && "+-*/^=<>≤≥≠".contains(w) => w.chars().next(),
+        _ => None,
+    }
+}
 
 /// The expression for an object that can be part of one.
 pub fn from_obj(o: &Obj) -> Res<Expr> {
@@ -67,9 +86,7 @@ pub fn build(w: &str, args: &[Obj]) -> Res<Expr> {
     let mut es = args.iter().map(from_obj).collect::<Res<Vec<_>>>()?;
     Ok(match (w, &mut es[..]) {
         ("NEG", [a]) => neg(a.clone()),
-        (c, [a, b]) if c.len() == 1 && "+-*/^=".contains(c) => {
-            op(c.chars().next().unwrap(), a.clone(), b.clone())
-        }
+        (w, [a, b]) if word_op(w).is_some() => op(word_op(w).unwrap(), a.clone(), b.clone()),
         _ => Fn(w.into(), es),
     })
 }
@@ -86,7 +103,7 @@ pub fn to_nodes(e: &Expr, out: &mut Vec<Node>) {
         Op(c, a, b) => {
             to_nodes(a, out);
             to_nodes(b, out);
-            out.push(Node::Word(c.to_string()));
+            out.push(Node::Word(op_word(*c)));
         }
         Fn(f, args) => {
             for a in args {
@@ -101,7 +118,8 @@ pub fn to_nodes(e: &Expr, out: &mut Vec<Node>) {
 
 fn prec(e: &Expr) -> u8 {
     match e {
-        Op('=', ..) => 1,
+        Op('=', ..) => 0,
+        Op('<' | '>' | '≤' | '≥' | '≠' | '≡', ..) => 1,
         Op('+' | '-', ..) => 2,
         Op('*' | '/', ..) => 3,
         Neg(_) => 4,
@@ -140,7 +158,7 @@ pub fn write_expr(out: &mut String, e: &Expr, fmt: Fmt) {
                 )
             };
             wrap(out, a, lp);
-            out.push(*c);
+            out.push_str(&op_word(*c));
             wrap(out, b, rp);
         }
         Fn(f, args) if f == "√" && args.len() == 1 => {
@@ -182,7 +200,16 @@ fn lex(s: &str) -> Res<Vec<T>> {
         let c = cs[i];
         if c.is_whitespace() {
             i += 1;
-        } else if "+-*/^=(),!√".contains(c) {
+        } else if let Some(two) = cs.get(i..i + 2).and_then(|p| match p {
+            ['=', '='] => Some('≡'),
+            ['<', '='] => Some('≤'),
+            ['>', '='] => Some('≥'),
+            ['<', '>'] => Some('≠'),
+            _ => None,
+        }) {
+            out.push(T::Sym(two));
+            i += 2;
+        } else if "+-*/^=(),!√<>≤≥≠".contains(c) {
             out.push(T::Sym(c));
             i += 1;
         } else if c.is_ascii_digit() || c == '.' {
@@ -206,7 +233,8 @@ fn lex(s: &str) -> Res<Vec<T>> {
             out.push(T::Num(parse_num(&w).ok_or(Error::Syntax)?));
         } else {
             let start = i;
-            while i < cs.len() && !cs[i].is_whitespace() && !"+-*/^=(),!√'".contains(cs[i]) {
+            while i < cs.len() && !cs[i].is_whitespace() && !"+-*/^=(),!√'<>≤≥≠".contains(cs[i])
+            {
                 i += 1;
             }
             let w: String = cs[start..i].iter().collect();
@@ -242,9 +270,19 @@ impl P {
     }
 
     fn equation(&mut self) -> Res<Expr> {
-        let a = self.sum()?;
+        let a = self.comparison()?;
         if self.eat('=') {
-            return Ok(op('=', a, self.sum()?));
+            return Ok(op('=', a, self.comparison()?));
+        }
+        Ok(a)
+    }
+
+    fn comparison(&mut self) -> Res<Expr> {
+        let a = self.sum()?;
+        for c in ['<', '>', '≤', '≥', '≠', '≡'] {
+            if self.eat(c) {
+                return Ok(op(c, a, self.sum()?));
+            }
         }
         Ok(a)
     }

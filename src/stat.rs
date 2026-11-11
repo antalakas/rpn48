@@ -63,6 +63,12 @@ impl Calc {
         Ok(m.iter().map(|r| r[c - 1]).collect())
     }
 
+    /// The x column alone, for bar plots and histograms.
+    pub(crate) fn x_column(&self) -> Res<Vec<f64>> {
+        let (m, p) = (self.data()?, self.par());
+        self.column(&m, p.x)
+    }
+
     /// The x and y columns, for the two-variable statistics.
     pub(crate) fn xy(&self) -> Res<(Vec<f64>, Vec<f64>)> {
         let (m, p) = (self.data()?, self.par());

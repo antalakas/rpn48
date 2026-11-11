@@ -24,9 +24,9 @@ impl Calc {
         };
         let call: Option<(String, Vec<Obj>)> = match &e {
             Neg(a) => num(a).map(|x| ("NEG".into(), vec![x])),
-            Op(c, a, b) if *c != '=' => {
-                num(a).zip(num(b)).map(|(x, y)| (c.to_string(), vec![x, y]))
-            }
+            Op(c, a, b) if *c != '=' => num(a)
+                .zip(num(b))
+                .map(|(x, y)| (crate::alg::op_word(*c), vec![x, y])),
             Fn(f, args) => args
                 .iter()
                 .map(num)
@@ -58,14 +58,21 @@ impl Calc {
 
     /// The value of `e` with `var` set to `x`, computed as →NUM would.
     pub(crate) fn eval_at(&mut self, e: &Obj, var: &str, x: f64) -> Res<f64> {
+        match self.value_at(e, var, x)? {
+            Obj::Real(y) => Ok(y),
+            _ => Err(Error::BadType),
+        }
+    }
+
+    /// The object `e` gives with `var` set to `x`, as →NUM would.
+    pub(crate) fn value_at(&mut self, e: &Obj, var: &str, x: f64) -> Res<Obj> {
         let base = self.stack.len();
         self.stack.push(Obj::Real(x));
         let was = std::mem::replace(&mut self.numeric, true);
         let r = self.with_locals(&[var.to_string()], |c| c.eval_obj(e.clone()));
         self.numeric = was;
         let r = r.and_then(|_| match &self.stack[base..] {
-            [Obj::Real(y)] => Ok(*y),
-            [_] => Err(Error::BadType),
+            [y] => Ok(y.clone()),
             _ => Err(Error::BadValue),
         });
         self.stack.truncate(base);

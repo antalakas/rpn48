@@ -9,7 +9,7 @@ use crate::menu::Menu;
 use crate::obj::{Base, Coord, Fmt, Node, Obj, r12, set_base, set_coord};
 use crate::parse::parse;
 use crate::pause::PauseFn;
-use crate::plot::Plot;
+use crate::plot::{Plot, Shape};
 use crate::{array, binary, carray, lists, more, units};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -187,8 +187,9 @@ pub struct Calc {
     pub disp: Vec<String>,
     /// FREEZE: the DISP lines stay up after the program ends.
     pub frozen: bool,
-    /// What DRAW drew, while the display shows it.
+    /// PICT, shown while `plot` is set.
     pub plot: Option<Plot>,
+    pub pict: Vec<Shape>,
     /// The arguments of the last command, for LASTARG.
     pub last_args: Vec<Obj>,
     /// The last error, for ERRN and ERRM.
@@ -232,6 +233,7 @@ impl Calc {
             disp: vec![],
             frozen: false,
             plot: None,
+            pict: vec![],
             last_args: vec![],
             last_err: None,
             locals: vec![],
@@ -901,7 +903,8 @@ impl Calc {
         {
             return Ok(vec![Obj::Alg(alg::build(w, args)?)]);
         }
-        if w != "+"
+        // Lists are compared whole, and + joins them.
+        if !["+", "==", "≠"].contains(&w)
             && (SYMBOLIC.contains(&w) || lists::MAPPED.contains(&w))
             && args.iter().any(|a| matches!(a, Obj::List(_)))
         {
@@ -1006,6 +1009,7 @@ fn constant(n: &str) -> Option<Obj> {
     match n {
         "π" => Some(Obj::Real(PI)),
         "e" => Some(Obj::Real(E)),
+        "i" => Some(Obj::Complex(0.0, 1.0)),
         _ => None,
     }
 }
@@ -1148,6 +1152,7 @@ fn pure(w: &str) -> Option<(usize, OpFn)> {
         "EXPM" => op(1, |_, a| real1(&a[0], f64::exp_m1)),
         "π" => op(0, |_, _| one(real(PI))),
         "e" => op(0, |_, _| one(real(E))),
+        "i" => op(0, |_, _| Ok(vec![Complex(0.0, 1.0)])),
 
         "R→C" => op(2, |_, a| match (&a[0], &a[1]) {
             (Real(re), Real(im)) => Ok(vec![Complex(*re, *im)]),

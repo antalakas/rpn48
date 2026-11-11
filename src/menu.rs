@@ -132,8 +132,34 @@ const SYMBOLIC: &[&str] = &[
     "ISOL", "QUAD", "EXPAN", "STEQ", "RCEQ", "SOLVR", //
 ];
 const PLOT: &[&str] = &[
-    "DRAW", "AUTO", "XRNG", "YRNG", "INDEP", "STEQ", //
-    "FUNCTION", "POLAR", "SCATTER", "RCEQ", "SOLVR", //
+    "DRAW",
+    "AUTO",
+    "XRNG",
+    "YRNG",
+    "INDEP",
+    "RES", //
+    "ERASE",
+    "PVIEW",
+    "GRAPH",
+    "STEQ",
+    "RCEQ",
+    "SOLVR", //
+    "FUNCTION",
+    "POLAR",
+    "PARAMETRIC",
+    "SCATTER",
+    "BAR",
+    "HISTOGRAM", //
+    "TRUTH",
+    "LINE",
+    "TLINE",
+    "BOX",
+    "ARC",
+    "PIXON", //
+    "PIXOFF",
+    "PIX?",
+    "PX→C",
+    "C→PX", //
 ];
 const TIME: &[&str] = &[
     "TIME", "DATE", "TICKS", "→HMS", "HMS→", "HMS+", //

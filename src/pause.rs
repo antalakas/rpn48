@@ -107,10 +107,15 @@ impl Calc {
                 self.frozen = true;
             }),
             // KEY: the code of a key pressed since, and 1, or just 0.
-            "KEY" => self.pause_for(Pause::Key(false)).map(|k| match k.and_then(|k| k.parse().ok()) {
-                Some(code) => self.stack.extend([Obj::Real(f64::trunc(code)), Obj::Real(1.0)]),
-                None => self.stack.push(Obj::Real(0.0)),
-            }),
+            "KEY" => {
+                self.pause_for(Pause::Key(false))
+                    .map(|k| match k.and_then(|k| k.parse().ok()) {
+                        Some(code) => self
+                            .stack
+                            .extend([Obj::Real(f64::trunc(code)), Obj::Real(1.0)]),
+                        None => self.stack.push(Obj::Real(0.0)),
+                    })
+            }
             "WAIT" => self.need(1).and_then(|_| {
                 let Obj::Real(s) = *self.peek(1) else {
                     return Err(Error::BadType);
