@@ -164,8 +164,19 @@ const PLOT: &[&str] = &[
     "C→PX", //
 ];
 const TIME: &[&str] = &[
-    "TIME", "DATE", "TICKS", "→HMS", "HMS→", "HMS+", //
-    "HMS-", //
+    "TIME",
+    "DATE",
+    "TICKS",
+    "→HMS",
+    "HMS→",
+    "HMS+", //
+    "HMS-",
+    "STOALARM",
+    "RCLALARM",
+    "DELALARM",
+    "FINDALARM",
+    "ACK",    //
+    "ACKALL", //
 ];
 
 impl Menu {

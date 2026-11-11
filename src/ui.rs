@@ -75,6 +75,7 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
         (calc.halted > 0, "HALT  "),
         (calc.user_mode(), "USER  "),
         (app.entry, "PRG  "),
+        (calc.alarms.iter().any(|a| a.due), "ALRM  "),
     ]
     .iter()
     .filter(|(on, _)| *on)

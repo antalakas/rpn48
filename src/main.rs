@@ -1,5 +1,6 @@
 //! rpn48: an RPN calculator for the terminal in the style of the HP 48.
 
+mod alarms;
 mod alg;
 mod array;
 mod binary;
@@ -175,6 +176,7 @@ fn read_key(calc: &mut Calc, wait: bool) -> Result<Option<String>, Error> {
     drawn.map_err(|e| Error::User(e.to_string()))?;
     let mut plane = 1;
     loop {
+        let wait = (!wait).then_some(Duration::ZERO);
         let Some(ev) = next_event(wait).map_err(|e| Error::User(e.to_string()))? else {
             return Ok(None);
         };
@@ -266,10 +268,15 @@ fn draw(app: &App) -> io::Result<()> {
 
 fn run(app: &mut App) -> io::Result<()> {
     while !app.quit && app.resume.is_none() {
+        app.alarms();
         draw(app)?;
         let size = TERMINAL.with_borrow(|t| t.as_ref().map(|t| t.size()).transpose())?;
         let size = size.unwrap_or_default();
-        match next_event(true)?.unwrap() {
+        // Waking each second to see to the alarms.
+        let Some(ev) = next_event(Some(Duration::from_secs(1)))? else {
+            continue;
+        };
+        match ev {
             Event::Key(k) if k.kind == KeyEventKind::Press => app.key(k),
             Event::Mouse(m) if m.kind == MouseEventKind::Down(MouseButton::Left) => {
                 let keys = keypad::split(Rect::new(0, 0, size.width, size.height)).1;
@@ -301,12 +308,14 @@ fn interrupted() -> bool {
 }
 
 /// The next event: one kept while a program ran, or else from the terminal,
-/// waiting for it or not.
-fn next_event(wait: bool) -> io::Result<Option<Event>> {
+/// waiting for it at most `wait`, or for as long as it takes.
+fn next_event(wait: Option<Duration>) -> io::Result<Option<Event>> {
     if let Some(ev) = PENDING.with_borrow_mut(|p| p.pop_front()) {
         return Ok(Some(ev));
     }
-    if !wait && !event::poll(Duration::ZERO)? {
+    if let Some(w) = wait
+        && !event::poll(w)?
+    {
         return Ok(None);
     }
     event::read().map(Some)
@@ -750,17 +759,39 @@ impl App {
 
     /// In USER mode a key with an object assigned runs it; false when the
     /// key has none and does its own function.
-    fn user_key(&mut self, key: &Key, plane: u32) -> bool {
-        let code = keypad::code(key) as f64 + plane as f64 / 10.0;
-        let Some(o) = self.calc.user_key(code) else {
-            return false;
-        };
+    /// Announces the appointment alarms that have come due, with a beep,
+    /// and runs the control alarms' objects.
+    fn alarms(&mut self) {
+        let (say, run) = self.calc.due_alarms();
+        if let Some(s) = say.last() {
+            self.message = Some(format!("ALARM: {s}"));
+            print!("\x07");
+            let _ = io::Write::flush(&mut io::stdout());
+        }
+        for o in run {
+            self.run_obj(o);
+        }
+        if !say.is_empty() {
+            self.save();
+        }
+    }
+
+    /// Runs an object as a key assigned it would.
+    fn run_obj(&mut self, o: Obj) {
         let src = o.show(Fmt::Std);
         self.command(&match o {
             Obj::Prog(_) => format!("{src} EVAL"),
             Obj::Name(n) => n,
             _ => src,
         });
+    }
+
+    fn user_key(&mut self, key: &Key, plane: u32) -> bool {
+        let code = keypad::code(key) as f64 + plane as f64 / 10.0;
+        let Some(o) = self.calc.user_key(code) else {
+            return false;
+        };
+        self.run_obj(o);
         true
     }
 
