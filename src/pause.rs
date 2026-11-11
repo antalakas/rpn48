@@ -107,7 +107,7 @@ impl Calc {
                 let Obj::Real(s) = *self.peek(1) else {
                     return Err(Error::BadType);
                 };
-                if !(s > 0.0) || s > 1e6 {
+                if s.is_nan() || s <= 0.0 || s > 1e6 {
                     return Err(Error::BadValue);
                 }
                 self.stack.pop();
