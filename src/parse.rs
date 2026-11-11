@@ -259,6 +259,28 @@ fn parse_bin(w: &str) -> Option<u64> {
     u64::from_str_radix(digits, b.radix()).ok()
 }
 
+/// A row of an array as it was written.
+enum Row {
+    Real(Vec<f64>),
+    Complex(Vec<(f64, f64)>),
+}
+
+impl Row {
+    fn len(&self) -> usize {
+        match self {
+            Row::Real(r) => r.len(),
+            Row::Complex(r) => r.len(),
+        }
+    }
+
+    fn complex(self) -> Vec<(f64, f64)> {
+        match self {
+            Row::Real(r) => r.into_iter().map(|x| (x, 0.0)).collect(),
+            Row::Complex(r) => r,
+        }
+    }
+}
+
 /// A vector's components, the angles (∠) among them converted from polar
 /// or spherical form.
 fn polar_row(r: &[(f64, bool)]) -> Res<Vec<f64>> {
@@ -477,23 +499,38 @@ impl Parser {
 
     // [ 1 2 3 ] is a vector, [[ 1 2 ] [ 3 4 ]] a matrix.
     fn array(&mut self) -> Res<Obj> {
-        let row = |p: &mut Parser| -> Res<Vec<f64>> {
-            let mut r = vec![];
+        // A row's elements, complex if any is.
+        let row = |p: &mut Parser| -> Res<Row> {
+            let (mut r, mut z) = (vec![], vec![]);
             loop {
                 let tok = p.toks.get(p.i).cloned().ok_or(Error::Syntax)?;
                 p.i += 1;
                 match tok {
                     Tok::Num(x) => r.push((x, false)),
                     Tok::Angle(x) => r.push((x, true)),
-                    Tok::RBrack => return polar_row(&r),
+                    Tok::Cplx(re, im) => z.push((r.len(), (re, im))),
+                    Tok::RBrack if z.is_empty() => return polar_row(&r).map(Row::Real),
+                    Tok::RBrack => {
+                        if r.iter().any(|c| c.1) {
+                            return Err(Error::Syntax);
+                        }
+                        let mut out: Vec<(f64, f64)> = r.iter().map(|c| (c.0, 0.0)).collect();
+                        for (k, (i, v)) in z.into_iter().enumerate() {
+                            out.insert(i + k, v);
+                        }
+                        return Ok(Row::Complex(out));
+                    }
                     _ => return Err(Error::Syntax),
                 }
             }
         };
         if self.toks.get(self.i) != Some(&Tok::LBrack) {
-            return Ok(Obj::Vect(row(self)?));
+            return Ok(match row(self)? {
+                Row::Real(r) => Obj::Vect(r),
+                Row::Complex(r) => Obj::CVect(r),
+            });
         }
-        let mut rows: Vec<Vec<f64>> = vec![];
+        let mut rows: Vec<Row> = vec![];
         loop {
             let tok = self.toks.get(self.i).cloned().ok_or(Error::Syntax)?;
             self.i += 1;
@@ -507,7 +544,17 @@ impl Parser {
         if cols == 0 || rows.iter().any(|r| r.len() != cols) {
             return Err(Error::Syntax);
         }
-        Ok(Obj::Mat(rows))
+        if rows.iter().all(|r| matches!(r, Row::Real(_))) {
+            return Ok(Obj::Mat(
+                rows.into_iter()
+                    .map(|r| match r {
+                        Row::Real(r) => r,
+                        Row::Complex(_) => unreachable!(),
+                    })
+                    .collect(),
+            ));
+        }
+        Ok(Obj::CMat(rows.into_iter().map(Row::complex).collect()))
     }
 
     // DIR name object name object ... END

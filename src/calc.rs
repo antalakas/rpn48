@@ -10,7 +10,7 @@ use crate::obj::{Base, Coord, Fmt, Node, Obj, r12, set_base, set_coord};
 use crate::parse::parse;
 use crate::pause::PauseFn;
 use crate::plot::Plot;
-use crate::{array, binary, lists, more, units};
+use crate::{array, binary, carray, lists, more, units};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -909,6 +909,7 @@ impl Calc {
         }
         if let Some(r) = units::over(self, w, f, args)
             .or_else(|| binary::over(self, w, args))
+            .or_else(|| carray::over(w, args))
             .or_else(|| array::over(w, args))
         {
             return r;
@@ -1188,6 +1189,7 @@ fn pure(w: &str) -> Option<(usize, OpFn)> {
                 Name(_) => 6.0,
                 Prog(_) => 8.0,
                 Vect(_) | Mat(_) => 3.0,
+                CVect(_) | CMat(_) => 4.0,
                 Alg(_) => 9.0,
                 Bin(_) => 10.0,
                 Tag(..) => 12.0,

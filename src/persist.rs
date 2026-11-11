@@ -155,7 +155,7 @@ mod tests {
         let mut c = Calc::new();
         c.exec_line("RAD CYLIN 4 FIX π 1 3 / (1,-2) \"say \\\"hi\\\"\" { A 1 { } } 'X' « → a « a 'Y' STO » » 'P' STO 7 'N' STO")
             .unwrap();
-        c.exec_line("'X^2+1' [[1 2][3 4]] :T:5 1_J/(kg*K) -40_°F HEX 16 STWS #FFh 5 SF -3 SF 'D' CRDIR D 'E' CRDIR E 9 'Z' STO")
+        c.exec_line("'X^2+1' [[1 2][3 4]] :T:5 [[ (1,2) 3 ][ 4 (0,-1) ]] 1_J/(kg*K) -40_°F HEX 16 STWS #FFh 5 SF -3 SF 'D' CRDIR D 'E' CRDIR E 9 'Z' STO")
             .unwrap();
         save(&c, &path).unwrap();
         let mut d = Calc::new();

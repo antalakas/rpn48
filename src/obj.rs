@@ -18,6 +18,9 @@ pub enum Obj {
     /// Real vectors [ 1 2 3 ] and matrices [[ 1 2 ] [ 3 4 ]], rows of equal length.
     Vect(Vec<f64>),
     Mat(Vec<Vec<f64>>),
+    /// Complex vectors and matrices, [ (1,2) (3,4) ].
+    CVect(Vec<(f64, f64)>),
+    CMat(Vec<Vec<(f64, f64)>>),
     Alg(Expr),
     /// An object with a label, :A:5.
     Tag(String, Box<Obj>),
@@ -271,6 +274,17 @@ fn write_obj(out: &mut String, o: &Obj, fmt: Fmt, top: bool) {
             out.push(b.suffix());
         }
         Obj::Vect(v) => write_row(out, v, fmt),
+        Obj::CVect(v) => write_crow(out, v, fmt),
+        Obj::CMat(m) => {
+            out.push('[');
+            for (i, r) in m.iter().enumerate() {
+                if i > 0 {
+                    out.push(' ');
+                }
+                write_crow(out, r, fmt);
+            }
+            out.push(']');
+        }
         Obj::Mat(m) => {
             out.push('[');
             for (i, r) in m.iter().enumerate() {
@@ -329,6 +343,15 @@ pub fn to_polar(r: &[f64]) -> Option<Vec<(f64, bool)>> {
         ],
     };
     Some(parts.into_iter().map(|(x, a)| (r12(x), a)).collect())
+}
+
+fn write_crow(out: &mut String, r: &[(f64, f64)], fmt: Fmt) {
+    out.push('[');
+    for &(re, im) in r {
+        out.push(' ');
+        write_obj(out, &Obj::Complex(re, im), fmt, false);
+    }
+    out.push_str(" ]");
 }
 
 fn write_row(out: &mut String, r: &[f64], fmt: Fmt) {

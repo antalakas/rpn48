@@ -4,6 +4,7 @@ mod alg;
 mod array;
 mod binary;
 mod calc;
+mod carray;
 mod keypad;
 mod lists;
 mod menu;

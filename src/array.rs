@@ -1,6 +1,7 @@
 //! Real vectors and matrices.
 
 use crate::calc::{Calc, Error, OpFn, Res, index, one, op, real_of};
+use crate::carray;
 use crate::obj::{Coord, Obj, from_polar, r12, to_polar};
 
 type M = Vec<Vec<f64>>;
@@ -397,8 +398,21 @@ impl Calc {
                 let n: usize = ds.iter().product();
                 self.need(n + 1)?;
                 let items = &self.stack[self.stack.len() - 1 - n..self.stack.len() - 1];
-                let xs = items.iter().map(real_of).collect::<Res<Vec<_>>>()?;
-                let arr = shaped(&ds, xs.into_iter())?;
+                // A complex element makes the array complex.
+                let arr = if items.iter().any(|o| matches!(o, Obj::Complex(..))) {
+                    let zs = items
+                        .iter()
+                        .map(|o| match o {
+                            Obj::Real(x) => Ok((*x, 0.0)),
+                            Obj::Complex(re, im) => Ok((*re, *im)),
+                            _ => Err(Error::BadType),
+                        })
+                        .collect::<Res<Vec<_>>>()?;
+                    carray::shaped(&ds, &zs)?
+                } else {
+                    let xs = items.iter().map(real_of).collect::<Res<Vec<_>>>()?;
+                    shaped(&ds, xs.into_iter())?
+                };
                 self.stack.truncate(self.stack.len() - 1 - n);
                 self.stack.push(arr);
                 Ok(())
