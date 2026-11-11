@@ -38,6 +38,7 @@ are still there next time, like the calculator's continuous memory.
 | `+ * / ^` | run at once | run at once after a number, otherwise type it |
 | `-` | type it (starts a negative number) | run at once after a number |
 | F1–F6 | run the soft key | run it, or type its name inside `« »` |
+| Shift- / Alt-F1–F6 | the soft key left- / right-shifted (◀ / ▶) | |
 | Tab / Shift-Tab | next / previous menu page | |
 | F7–F11 | MTH, STK, PRG, VAR, MODES menus | |
 | Ctrl-E | edit level 1 | |
@@ -55,8 +56,8 @@ right-shifted one at the top right, in green. Click ◀ or ▶ (the shift keys
 in the bottom-left column), then a key, for the shifted function: ◀ SIN is
 ASIN, ▶ EVAL is UNDO, ◀ - types `« »`. The top row of keys is the soft keys,
 labelled with the current menu; in the VAR menu, ◀ and ▶ on a soft key
-store into and recall that variable. Functions rpn48 doesn't have (PLOT,
-SOLVE, UNITS and the rest) are dimmed.
+store into and recall that variable. Functions rpn48 doesn't have (the
+equation and matrix writers, I/O, libraries and the rest) are dimmed.
 
 The keyboard takes the mouse, so to select text on the screen, hold Shift
 while dragging (in most terminals).
@@ -72,7 +73,8 @@ variable has that name.
   `.1 .2 + .3 ==` is true), complex numbers `(1,2)`, strings, names `'X'`,
   algebraics `'X^2+1'`, binary integers `# FFh`, vectors `[ 1 2 3 ]` and
   matrices `[[ 1 2 ] [ 3 4 ]]`, lists `{ 1 2 }`, programs `« … »`, tagged
-  objects `:A:5`, unit objects `9.8_m/s^2` and directories.
+  objects `:A:5`, unit objects `9.8_m/s^2` and directories. Complex
+  numbers and vectors can be typed in polar form, `(1,∠90)` and `[ 2 ∠45 ]`.
 - **Math:** `+ - * / ^ NEG INV SQ √ XROOT ABS SIGN IP FP FLOOR CEIL MOD MIN MAX % %CH %T !`,
   `RND TRNC MANT XPON`, trigonometry and its inverses in DEG/RAD/GRAD,
   hyperbolics, `LN LOG EXP ALOG LNP1 EXPM`, `π e`, complex
@@ -85,9 +87,22 @@ variable has that name.
   roots, `|` substitutes, `TAYLR` gives Taylor polynomials, `COLCT` folds
   numbers, `→Q` turns a real into a fraction, `EQ→` splits an equation, and
   `DEFINE` makes user-defined functions: `'F(X)=X^2+1' DEFINE 'F(3)' EVAL` is 10.
+  `ISOL` solves for a name that appears once (`'2*X+3=7' 'X' ISOL` is
+  `'X=2'`), `QUAD` solves quadratics with `s1` for the sign
+  (`'X^2-5*X+6' 'X' QUAD` is `'X=(5+s1)/2'`), `EXPAN` multiplies out, and
+  `COLCT` collects like terms (`'X*X+X+X+1'` becomes `'X^2+2*X+1'`).
 - **Arrays:** `+ - *` and `/` (which solves `B A /` for A·X = B),
   `DET INV TRN DOT CROSS ABS IDN CON RDM RNRM CNRM TRACE →ARRY ARRY→ V→ →V2 →V3`,
-  and `GET PUT SIZE`.
+  and `GET PUT SIZE`, on real and complex arrays (`[ (1,2) 3 ]`; `R→C` and
+  `C→R` build and split them, `CONJ RE IM` take them apart).
+- **Solver:** `STEQ` stores an equation in `EQ`, and the SOLVR menu (◀ 7)
+  has a key for each of its variables: a value then the key stores it, ◀
+  (or Shift-F*n*) solves for it, ▶ (or Alt-F*n*) recalls it, and `EXPR=`
+  shows both sides.
+- **Plotting:** `DRAW` plots `EQ` (or a list of expressions) as a
+  `FUNCTION` or in `POLAR` form, or `ΣDAT` as a `SCATTER` plot, over the
+  ranges in `PPAR` set by `XRNG YRNG INDEP AUTO`. The arrows move a cursor
+  and ENTER puts its coordinates on the stack. The PLOT menu is ◀ 8.
 - **Units:** the calculator's unit table (length, area, volume, time,
   speed, mass, force, energy, power, pressure, temperature, electricity,
   angles, light, radiation, viscosity) with SI prefixes (`km`, `MeV`, `μs`).
@@ -110,7 +125,11 @@ variable has that name.
   `FOR i NEXT/STEP`, `WHILE REPEAT END`, `DO UNTIL END`, local variables
   `→ a b « … »` and `→ x 'x^2'`, `EVAL IFT IFTE`, comparisons and logic
   `== ≠ < > ≤ ≥ SAME AND OR XOR NOT`, tags `→TAG DTAG`, and flags
-  `SF CF FS? FC? FS?C FC?C`.
+  `SF CF FS? FC? FS?C FC?C`. `HALT` stops a program with the calculator
+  usable until `CONT` (◀ ON) or `KILL`; `PROMPT` does so with a message,
+  `INPUT` asks for a line, `MSGBOX` waits for a key, and `DISP CLLCD FREEZE
+  WAIT` show things while it runs. Without the display (`rpn48 '…'`),
+  prompts go to stderr and input comes from stdin.
 - **Variables and directories:** `STO RCL PURGE VARS`, `STO+ STO- STO* STO/ INCR DECR`,
   `CRDIR PGDIR UPDIR HOME PATH`; names are looked up in the current
   directory and then those above it. The VAR menu runs or recalls variables
@@ -118,11 +137,14 @@ variable has that name.
 - **Statistics:** on the matrix `ΣDAT`, `Σ+ Σ- CLΣ NΣ TOT MEAN SDEV VAR MAXΣ MINΣ`,
   and on its `XCOL`/`YCOL` columns `LR PREDY PREDX CORR COV ΣX ΣY ΣX2 ΣY2 ΣXY`.
 - **Time:** `TIME DATE TICKS`.
-- **Display:** `STD`, `n FIX`, `n SCI`, `n ENG`.
+- **Display:** `STD`, `n FIX`, `n SCI`, `n ENG`, and `RECT CYLIN SPHERE`
+  (▶ MTH toggles polar), which show complex numbers as `(r,∠θ)` and 2- and
+  3-element vectors as `[ r ∠θ ]`, `[ r ∠θ z ]` or `[ r ∠θ ∠φ ]`.
 
 The menus follow the calculator's: MTH leads to VECTR, MATR, LIST, HYP,
 REAL, BASE, PROB and CMPL, PRG to BRCH, TEST, TYPE, LIST and ERROR, and the
-keyboard's shifted keys open STAT, SYMBOLIC, TIME, UNITS and MEMORY.
+keyboard's shifted keys open SOLVE, PLOT, SYMBOLIC, TIME, STAT, UNITS and
+MEMORY.
 
 As on the calculator, a failed command puts its arguments back and reports
 `SIN Error: Bad Argument Type` and the like.
@@ -136,10 +158,10 @@ For example, a recursive factorial:
 
 ## Not there (yet)
 
-Complex arrays, symbolic integration and equation rearranging
-(`ISOL`, `QUAD`, `EXPAN`), polar display, plotting, the solver and matrix
-writer applications, graphics objects, `HALT`/`CONT`, `INPUT`/`PROMPT`, and
-the calculator's I/O.
+Symbolic integration, graphics objects and the PICT editor, the equation
+and matrix writers, plot types beyond function, polar and scatter, `KEY`
+and `0 WAIT`, libraries, alarms, the CHARS and USER keyboards, and the
+calculator's I/O (Kermit, infrared, printing).
 
 ## License
 

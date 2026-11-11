@@ -121,7 +121,7 @@ pub static ROWS: [&[Key]; 9] = [
             ("RCL", Cmd("RCL")),
         ),
         key("EVAL", Cmd("EVAL"), ("→NUM", Cmd("→NUM")), ("UNDO", Undo)),
-        key("◀", Left, ("PICTURE", Unsupported), NONE),
+        key("◀", Left, ("PICTURE", Cmd("DRAW")), NONE),
         key("▼", Down, ("VIEW", Unsupported), NONE),
         key("▶", Right, ("SWAP", Cmd("SWAP")), NONE),
     ],
