@@ -364,7 +364,7 @@ pub fn pure(w: &str) -> Option<(usize, OpFn)> {
         // In polar modes these take and give a length and angles.
         "V→" => op(1, |_, a| {
             let v = vec_of(&a[0])?;
-            Ok(match to_polar(&v) {
+            Ok(match to_polar(v) {
                 Some(p) => p.iter().map(|x| Real(x.0)).collect(),
                 None => v.iter().map(|x| Real(*x)).collect(),
             })
