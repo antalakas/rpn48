@@ -7,14 +7,14 @@ than emulating the calculator, so it needs no ROM.
 ```
 ╭ rpn48 ───────────────────────────────────────────╮
 │{ HOME }                                  DEG  STD│
+│6:                                                │
 │5:                                                │
 │4:                                                │
 │3:                                              .5│
 │2:                                           (0,2)│
 │1:                             « → a b « a b * » »│
 │  ABS    SIGN     IP      FP     FLOOR   CEIL     │
-│MTH 1/7  F1–F6 keys · Tab more · F7 MTH F8 STK F9…│
-╰──────────────────────────────────────────────────╯
+╰ MTH 1/7 · Tab more · ^E edit · ^Z undo · ^Q quit ╯
 ```
 
 ## Running
@@ -45,6 +45,21 @@ are still there next time, like the calculator's continuous memory.
 | Esc | dismiss an error, stop a running program | clear the line |
 | ↑ / ↓ | command history | |
 | Ctrl-Q | quit | |
+
+## The keyboard
+
+In a terminal at least 92 columns wide and 20 rows tall, the HP 48 GX
+keyboard is drawn beside the display, and clicking a key presses it. Each key
+shows its left-shifted function at the top left, in purple, and its
+right-shifted one at the top right, in green. Click ◀ or ▶ (the shift keys
+in the bottom-left column), then a key, for the shifted function: ◀ SIN is
+ASIN, ▶ EVAL is UNDO, ◀ - types `« »`. The top row of keys is the soft keys,
+labelled with the current menu; in the VAR menu, ◀ and ▶ on a soft key
+store into and recall that variable. Functions rpn48 doesn't have (PLOT,
+SOLVE, UNITS and the rest) are dimmed.
+
+The keyboard takes the mouse, so to select text on the screen, hold Shift
+while dragging (in most terminals).
 
 Characters the keyboard lacks have ASCII spellings: `<< >>` for `« »`, `->`
 for `→` (so `R->C`, `->LIST`), `SQRT` for `√`, `PI` for `π`, and `<=`, `>=`,

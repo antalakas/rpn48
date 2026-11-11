@@ -1,6 +1,7 @@
 //! rpn48: an RPN calculator for the terminal in the style of the HP 48.
 
 mod calc;
+mod keypad;
 mod menu;
 mod obj;
 mod parse;
@@ -13,9 +14,15 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use ratatui::DefaultTerminal;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, MouseButton, MouseEventKind,
+};
+use ratatui::crossterm::execute;
+use ratatui::layout::Rect;
 
-use calc::{Calc, Snapshot};
+use calc::{Angle, Calc, Snapshot};
+use keypad::{Act, Key, Shift};
 use menu::Menu;
 use obj::{Fmt, Obj};
 use parse::{is_open, parse, parse_num};
@@ -70,7 +77,9 @@ fn batch(src: &str) -> ExitCode {
 fn interactive() -> io::Result<()> {
     let mut app = App::new();
     let mut terminal = ratatui::init();
-    let r = run(&mut terminal, &mut app);
+    // Clicks press the keys on the drawn keyboard.
+    let r = execute!(io::stdout(), EnableMouseCapture).and_then(|_| run(&mut terminal, &mut app));
+    let _ = execute!(io::stdout(), DisableMouseCapture);
     ratatui::restore();
     r
 }
@@ -78,10 +87,16 @@ fn interactive() -> io::Result<()> {
 fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     while !app.quit {
         terminal.draw(|f| ui::draw(f, app))?;
-        if let Event::Key(k) = event::read()?
-            && k.kind == KeyEventKind::Press
-        {
-            app.key(k);
+        let size = terminal.size()?;
+        match event::read()? {
+            Event::Key(k) if k.kind == KeyEventKind::Press => app.key(k),
+            Event::Mouse(m) if m.kind == MouseEventKind::Down(MouseButton::Left) => {
+                let keys = keypad::split(Rect::new(0, 0, size.width, size.height)).1;
+                if let Some(key) = keys.and_then(|area| keypad::hit(area, m.column, m.row)) {
+                    app.press(key);
+                }
+            }
+            _ => {}
         }
     }
     Ok(())
@@ -112,6 +127,8 @@ pub struct App {
     undo: Vec<Snapshot>,
     /// The object Ctrl-E took off the stack, while its text is being edited.
     editing: Option<Obj>,
+    /// A shift key clicked on the keyboard, applying to the next key clicked.
+    pub shift: Option<Shift>,
     memory: Option<PathBuf>,
     quit: bool,
 }
@@ -142,6 +159,7 @@ impl App {
             hist: None,
             undo: vec![],
             editing: None,
+            shift: None,
             memory,
             quit: false,
         }
@@ -149,44 +167,143 @@ impl App {
 
     fn key(&mut self, k: KeyEvent) {
         let had_message = self.message.take().is_some();
+        self.shift = None;
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        let act = match k.code {
+            KeyCode::Char('q' | 'c') if ctrl => Act::Off,
+            KeyCode::Char('z') if ctrl => Act::Undo,
+            KeyCode::Char('e') if ctrl => Act::Edit,
+            KeyCode::Char('u') if ctrl => Act::Cancel,
+            KeyCode::Char(_) if ctrl => Act::Nothing,
+            KeyCode::Char(c) => return self.type_char(c),
+            KeyCode::Enter => Act::Enter,
+            KeyCode::Backspace => Act::Backspace,
+            KeyCode::Delete => Act::Delete,
+            KeyCode::Right => Act::Right,
+            KeyCode::Left => Act::Left,
+            KeyCode::Home => return self.cur = 0,
+            KeyCode::End => return self.cur = self.line.len(),
+            KeyCode::Up => Act::Up,
+            KeyCode::Down => Act::Down,
+            KeyCode::Tab => Act::NextPage,
+            KeyCode::BackTab => Act::PrevPage,
+            KeyCode::F(n @ 1..=6) => Act::Soft(n as usize - 1),
+            KeyCode::F(n @ 7..=11) => Act::Menu(Menu::ALL[n as usize - 7]),
+            KeyCode::Esc if !had_message => Act::Cancel,
+            _ => Act::Nothing,
+        };
+        self.act(act, "");
+    }
+
+    /// A click on the drawn keyboard: the key's own function, or after a
+    /// shift key, the shifted one printed above it.
+    fn press(&mut self, key: &Key) {
+        self.message = None;
+        let (label, act) = match self.shift.take() {
+            _ if matches!(key.main, Act::Shift(_)) => (key.face, key.main),
+            None => (key.face, key.main),
+            Some(Shift::Left) => key.left,
+            Some(Shift::Right) => key.right,
+        };
+        self.act(act, label);
+    }
+
+    fn act(&mut self, act: Act, label: &str) {
         let empty = self.line.is_empty();
-        match k.code {
-            KeyCode::Char('q' | 'c') if ctrl => self.quit = true,
-            KeyCode::Char('z') if ctrl => self.undo(),
-            KeyCode::Char('e') if ctrl => self.edit(),
-            KeyCode::Char('u') if ctrl => self.cancel(),
-            KeyCode::Char(_) if ctrl => {}
-            KeyCode::Char(c) => self.type_char(c),
-            KeyCode::Enter => self.exec(if empty { "DUP" } else { "" }),
-            KeyCode::Backspace if empty => self.exec("DROP"),
-            KeyCode::Backspace if self.cur > 0 => {
-                self.cur -= 1;
-                self.line.remove(self.cur);
+        match act {
+            Act::Nothing => {}
+            Act::Unsupported => self.message = Some(format!("{label} is not supported")),
+            Act::Soft(i) => self.soft_key(i),
+            // In the VAR menu, left- and right-shifted soft keys store into
+            // and recall the variable; elsewhere they act unshifted.
+            Act::SoftSto(i) | Act::SoftRcl(i) => {
+                let name = self.calc.menu.page(&self.calc, self.calc.page)[i].clone();
+                if self.calc.menu == Menu::Var && !name.is_empty() {
+                    let cmd = if matches!(act, Act::SoftSto(_)) {
+                        "STO"
+                    } else {
+                        "RCL"
+                    };
+                    self.exec(&format!("'{name}' {cmd}"));
+                } else {
+                    self.soft_key(i);
+                }
             }
-            KeyCode::Delete if self.cur < self.line.len() => {
-                self.line.remove(self.cur);
+            Act::Menu(m) => (self.calc.menu, self.calc.page) = (m, 0),
+            Act::Cmd(c) => self.command(c),
+            // The keyboard has +/- for signs, so its - key subtracts even on an
+            // empty line.
+            Act::Op(c) if empty => self.exec(&c.to_string()),
+            Act::Op(c) => self.type_char(c),
+            Act::Text(s, back) => {
+                self.line.splice(self.cur..self.cur, s.chars());
+                self.cur += s.chars().count() - back;
             }
-            KeyCode::Right if empty => self.exec("SWAP"),
-            KeyCode::Right => self.cur = (self.cur + 1).min(self.line.len()),
-            KeyCode::Left => self.cur = self.cur.saturating_sub(1),
-            KeyCode::Home => self.cur = 0,
-            KeyCode::End => self.cur = self.line.len(),
-            KeyCode::Up => self.recall(true),
-            KeyCode::Down => self.recall(false),
-            KeyCode::Tab => {
+            Act::Enter => self.exec(if empty { "DUP" } else { "" }),
+            Act::Backspace if empty => self.exec("DROP"),
+            Act::Backspace => {
+                if self.cur > 0 {
+                    self.cur -= 1;
+                    self.line.remove(self.cur);
+                }
+            }
+            Act::Delete => {
+                if self.cur < self.line.len() {
+                    self.line.remove(self.cur);
+                }
+            }
+            Act::Right if empty => self.exec("SWAP"),
+            Act::Right => self.cur = (self.cur + 1).min(self.line.len()),
+            Act::Left => self.cur = self.cur.saturating_sub(1),
+            Act::Up => self.recall(true),
+            Act::Down => self.recall(false),
+            Act::Neg => self.negate(),
+            Act::Edit => self.edit(),
+            Act::Undo => self.undo(),
+            Act::NextPage => {
                 self.calc.page = (self.calc.page + 1) % self.calc.menu.pages(&self.calc)
             }
-            KeyCode::BackTab => {
+            Act::PrevPage => {
                 let pages = self.calc.menu.pages(&self.calc);
                 self.calc.page = (self.calc.page % pages + pages - 1) % pages;
             }
-            KeyCode::F(n @ 1..=6) => self.soft_key(n as usize - 1),
-            KeyCode::F(n @ 7..=11) => {
-                (self.calc.menu, self.calc.page) = (Menu::ALL[n as usize - 7], 0)
-            }
-            KeyCode::Esc if !had_message => self.cancel(),
-            _ => {}
+            Act::AngleToggle => self.exec(if self.calc.angle == Angle::Rad {
+                "DEG"
+            } else {
+                "RAD"
+            }),
+            Act::Shift(s) => self.shift = if self.shift == Some(s) { None } else { Some(s) },
+            Act::Cancel => self.cancel(),
+            Act::Off => self.quit = true,
+        }
+    }
+
+    // +/- flips the sign of the number being typed, or of its exponent after
+    // EEX; with no number at the cursor it runs NEG.
+    fn negate(&mut self) {
+        let start = self
+            .line
+            .iter()
+            .rposition(|c| c.is_whitespace())
+            .map_or(0, |i| i + 1);
+        let tok: String = self.line[start..].iter().collect();
+        let number = tok.chars().any(|c| c.is_ascii_digit())
+            && tok
+                .chars()
+                .all(|c| c.is_ascii_digit() || ".Ee-+".contains(c));
+        if self.cur != self.line.len() || !number {
+            return self.exec("NEG");
+        }
+        let at = match tok.find(['E', 'e']) {
+            Some(i) => start + tok[..i].chars().count() + 1,
+            None => start,
+        };
+        if self.line.get(at) == Some(&'-') {
+            self.line.remove(at);
+            self.cur -= 1;
+        } else {
+            self.line.insert(at, '-');
+            self.cur += 1;
         }
     }
 
@@ -212,19 +329,22 @@ impl App {
         self.cur += 1;
     }
 
-    // A soft key runs its command after the command line, except while a
-    // program is being typed, where the command's name goes into the text.
     fn soft_key(&mut self, i: usize) {
         let label = self.calc.menu.page(&self.calc, self.calc.page)[i].clone();
-        if label.is_empty() {
-            return;
+        if !label.is_empty() {
+            self.command(&label);
         }
+    }
+
+    // A command key runs its command after the command line, except while a
+    // program is being typed, where the command's name goes into the text.
+    fn command(&mut self, cmd: &str) {
         if is_open(&self.line.iter().collect::<String>()) {
-            let text = format!(" {label} ");
+            let text = format!(" {cmd} ");
             self.line.splice(self.cur..self.cur, text.chars());
             self.cur += text.chars().count();
         } else {
-            self.exec(&label);
+            self.exec(cmd);
         }
     }
 

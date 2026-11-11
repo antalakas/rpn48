@@ -1,29 +1,47 @@
-//! Drawing the display: status line, stack, command line and soft keys.
+//! Drawing the display (status line, stack, command line and soft keys) and,
+//! when the terminal is wide enough, the keyboard beside it.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style, Stylize};
+use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
 use crate::App;
+use crate::keypad::{self, Act, Shift};
 use crate::obj::Fmt;
 
-const HELP: &str =
-    "F1–F6 keys · Tab more · F7 MTH F8 STK F9 PRG F10 VAR F11 MODES · ^Z undo · ^E edit · ^Q quit";
+const LEFT_SHIFT: Color = Color::Magenta;
+const RIGHT_SHIFT: Color = Color::Green;
 
 pub fn draw(f: &mut Frame, app: &App) {
+    let (display, keys) = keypad::split(f.area());
+    draw_display(f, app, display);
+    if let Some(area) = keys {
+        draw_keys(f, app, area);
+    }
+}
+
+fn draw_display(f: &mut Frame, app: &App, area: Rect) {
+    let calc = &app.calc;
+    // Key hints go in the bottom border, so every row inside is the calculator's.
+    let hints = format!(
+        " {} {}/{} · Tab more · ^E edit · ^Z undo · ^Q quit ",
+        calc.menu.name(),
+        calc.page % calc.menu.pages(calc) + 1,
+        calc.menu.pages(calc)
+    );
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .title(" rpn48 ");
-    let inner = block.inner(f.area());
-    f.render_widget(block, f.area());
+        .title(" rpn48 ")
+        .title_bottom(Line::from(hints).dim());
+    let inner = block.inner(area);
+    f.render_widget(block, area);
     let w = inner.width as usize;
-    if inner.height < 5 || w < 24 {
+    if inner.height < 4 || w < 24 {
         f.render_widget(Paragraph::new("Terminal too small"), inner);
         return;
     }
-    let calc = &app.calc;
     let row = |y: u16| Rect {
         y: inner.y + y,
         height: 1,
@@ -31,13 +49,23 @@ pub fn draw(f: &mut Frame, app: &App) {
     };
     let mut y = 0;
 
+    // Shift annunciators, then the directory, then the modes.
+    let shift = match app.shift {
+        Some(Shift::Left) => Span::styled("◀ ", Style::new().fg(LEFT_SHIFT).bold()),
+        Some(Shift::Right) => Span::styled("▶ ", Style::new().fg(RIGHT_SHIFT).bold()),
+        None => Span::raw(""),
+    };
     let modes = match calc.fmt {
         Fmt::Std => format!("{}  STD", calc.angle.name()),
         Fmt::Fix(n) => format!("{}  FIX {n}", calc.angle.name()),
         Fmt::Sci(n) => format!("{}  SCI {n}", calc.angle.name()),
         Fmt::Eng(n) => format!("{}  ENG {n}", calc.angle.name()),
     };
-    f.render_widget(Paragraph::new(spread("{ HOME }", &modes, w)).dim(), row(y));
+    let header = spread("{ HOME }", &modes, w.saturating_sub(shift.width()));
+    f.render_widget(
+        Paragraph::new(Line::from(vec![shift, Span::raw(header).dim()])),
+        row(y),
+    );
     y += 1;
 
     if let Some(msg) = &app.message {
@@ -47,7 +75,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     // Stack levels fill whatever the other rows leave, highest level at the top.
     let cmd_rows = u16::from(!app.line.is_empty());
-    let levels = inner.height.saturating_sub(y + cmd_rows + 2);
+    let levels = inner.height.saturating_sub(y + cmd_rows + 1);
     for r in 0..levels {
         let level = (levels - r) as usize;
         let label = format!("{level}:");
@@ -71,28 +99,77 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     let cell = (w - 5) / 6;
-    let mut keys = vec![];
+    let mut labels = vec![];
     for (i, label) in calc.menu.page(calc, calc.page).iter().enumerate() {
         if i > 0 {
-            keys.push(Span::raw(" "));
+            labels.push(Span::raw(" "));
         }
         let style = if label.is_empty() {
             Style::new()
         } else {
             Style::new().add_modifier(Modifier::REVERSED)
         };
-        keys.push(Span::styled(center(&fit(label, cell), cell), style));
+        labels.push(Span::styled(center(&fit(label, cell), cell), style));
     }
-    f.render_widget(Paragraph::new(Line::from(keys)), row(y));
-    y += 1;
+    f.render_widget(Paragraph::new(Line::from(labels)), row(y));
+}
 
-    let menu = format!(
-        "{} {}/{}  ",
-        calc.menu.name(),
-        calc.page % calc.menu.pages(calc) + 1,
-        calc.menu.pages(calc)
+// Each key is two lines: its shifted functions, left shift's at the left in
+// purple and right shift's at the right in green, then the key itself. What
+// rpn48 can't do is dimmed. The top row's keys carry the soft-key labels.
+fn draw_keys(f: &mut Frame, app: &App, area: Rect) {
+    f.render_widget(
+        Block::bordered()
+            .border_type(BorderType::Rounded)
+            .title(" keys ")
+            .dim(),
+        area,
     );
-    f.render_widget(Paragraph::new(fit(&(menu + HELP), w)).dim(), row(y));
+    let soft = app.calc.menu.page(&app.calc, app.calc.page);
+    let dim = |s: Style, act: Act| {
+        if act == Act::Unsupported {
+            s.add_modifier(Modifier::DIM)
+        } else {
+            s
+        }
+    };
+    for (cell, key) in keypad::cells(area) {
+        let w = cell.width as usize - 1;
+        let (l, r) = (key.left.0, key.right.0);
+        let shifted = Line::from(vec![
+            Span::styled(l, dim(Style::new().fg(LEFT_SHIFT), key.left.1)),
+            Span::raw(" ".repeat(w.saturating_sub(width(l) + width(r)))),
+            Span::styled(r, dim(Style::new().fg(RIGHT_SHIFT), key.right.1)),
+        ]);
+        let (face, style) = match key.main {
+            Act::Soft(i) => (
+                soft[i].as_str(),
+                Style::new().add_modifier(Modifier::REVERSED),
+            ),
+            Act::Shift(s) => {
+                let color = if s == Shift::Left {
+                    LEFT_SHIFT
+                } else {
+                    RIGHT_SHIFT
+                };
+                let style = Style::new().fg(Color::Black).bg(color);
+                (
+                    key.face,
+                    if app.shift == Some(s) {
+                        style.bold().underlined()
+                    } else {
+                        style
+                    },
+                )
+            }
+            act => (
+                key.face,
+                dim(Style::new().add_modifier(Modifier::REVERSED), act),
+            ),
+        };
+        let face = Span::styled(center(&fit(face, w), w), style);
+        f.render_widget(Paragraph::new(vec![shifted, Line::from(face)]), cell);
+    }
 }
 
 fn width(s: &str) -> usize {

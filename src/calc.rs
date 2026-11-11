@@ -698,6 +698,18 @@ fn pure(w: &str) -> Option<(usize, OpFn)> {
         "^" => op(2, |_, a| {
             one(arith(&a[0], &a[1], real_pow, |x, y| cplx(x.pow(y)?)))
         }),
+        // y x XROOT is the real xth root of y, negative for an odd root of a
+        // negative number where ^ would give a complex result.
+        "XROOT" => op(2, |_, a| {
+            let (y, x) = (real_of(&a[0])?, real_of(&a[1])?);
+            one(if x == 0.0 {
+                Err(Error::BadValue)
+            } else if y < 0.0 && x.fract() == 0.0 && x % 2.0 != 0.0 {
+                real(-(-y).powf(1.0 / x))
+            } else {
+                real_pow(y, 1.0 / x)
+            })
+        }),
         "NEG" => op(1, |_, a| num1(&a[0], |x| real(-x), |z| cplx(C(-z.0, -z.1)))),
         "INV" => op(1, |_, a| {
             num1(
@@ -1177,6 +1189,7 @@ mod tests {
         assert_eq!(run("(1,2) (3,4) *"), ["(-5,10)"]);
         assert_eq!(run("5 !  .5 !"), ["120", ".886226925453"]);
         assert_eq!(run("-7 3 MOD"), ["2"]);
+        assert_eq!(run("27 3 XROOT  -8 3 XROOT"), ["3", "-2"]);
         assert_eq!(run("π"), ["3.14159265359"]);
     }
 
