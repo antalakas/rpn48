@@ -8,13 +8,15 @@ use crate::solve::EQ;
 
 const PPAR: &str = "PPAR";
 
+type Curve = Vec<(f64, f64)>;
+
 /// What DRAW computed, for the display to show.
 pub struct Plot {
     pub x: (f64, f64),
     pub y: (f64, f64),
     /// Each curve is broken where it is undefined or runs off to infinity.
-    pub curves: Vec<Vec<(f64, f64)>>,
-    pub points: Vec<(f64, f64)>,
+    pub curves: Vec<Curve>,
+    pub points: Curve,
     pub cursor: (f64, f64),
 }
 
@@ -88,7 +90,7 @@ impl Calc {
     }
 
     /// The curves and points of the plot PPAR describes, unclipped.
-    fn trace(&mut self, p: &Ppar) -> Res<(Vec<Vec<(f64, f64)>>, Vec<(f64, f64)>)> {
+    fn trace(&mut self, p: &Ppar) -> Res<(Vec<Curve>, Curve)> {
         match p.kind.as_str() {
             "SCATTER" => {
                 let (x, y) = self.xy()?;
