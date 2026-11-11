@@ -485,6 +485,7 @@ pub fn tidy(e: Expr) -> Expr {
                 },
                 '-' => match b {
                     Neg(b) => op('+', a, *b),
+                    Num(y) if y < 0.0 => op('+', a, Num(-y)),
                     b => op('-', a, b),
                 },
                 '*' if z(&a) || z(&b) => Num(0.0),

@@ -12,6 +12,7 @@ mod obj;
 mod parse;
 mod pause;
 mod persist;
+mod rearrange;
 mod stat;
 mod symbolic;
 mod ui;

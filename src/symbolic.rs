@@ -4,6 +4,7 @@
 use crate::alg::{Expr, deriv, from_obj, neg, op, subst, tidy, to_obj};
 use crate::calc::{Angle, Calc, Error, Res, fact, pure_any};
 use crate::obj::{Node, Obj, r12};
+use crate::rearrange::{colct, expand, isolate};
 
 use Expr::{Fn, Name, Neg, Num, Op};
 
@@ -46,7 +47,7 @@ impl Calc {
 
     /// The factor that turns the angle mode into radians, for derivatives
     /// of trigonometric functions.
-    fn angle_factor(&self) -> Option<Expr> {
+    pub(crate) fn angle_factor(&self) -> Option<Expr> {
         let turn = match self.angle {
             Angle::Rad => return None,
             Angle::Deg => 180.0,
@@ -195,7 +196,26 @@ impl Calc {
                 self.stack.pop();
                 Ok(())
             }),
-            "COLCT" => self.args(1, |c, a| Ok(vec![to_obj(c.collect(from_obj(&a[0])?))])),
+            "ISOL" | "QUAD" => self.args(2, |c, a| {
+                let Obj::Name(x) = &a[1] else {
+                    return Err(Error::BadType);
+                };
+                let e = from_obj(&a[0])?;
+                let r = if w == "ISOL" {
+                    c.collect(isolate(&e, x)?)
+                } else {
+                    c.quad(&e, x)?
+                };
+                Ok(vec![to_obj(r)])
+            }),
+            // EXPAN multiplies out, then collects like terms as COLCT does.
+            "EXPAN" | "COLCT" => self.args(1, |c, a| {
+                let mut e = c.collect(from_obj(&a[0])?);
+                if w == "EXPAN" {
+                    e = expand(&e);
+                }
+                Ok(vec![to_obj(c.collect(colct(&e)))])
+            }),
             // 'X^2+Y' { X 3 } | substitutes 3 for X: '3^2+Y'.
             "|" => self.args(2, |_, a| {
                 let Obj::List(l) = &a[1] else {

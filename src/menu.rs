@@ -127,6 +127,7 @@ const STAT: &[&str] = &[
 const SYMBOLIC: &[&str] = &[
     "∂", "∫", "Σ", "ROOT", "TAYLR", "|", //
     "COLCT", "→Q", "EQ→", "EVAL", "→NUM", "=", //
+    "ISOL", "QUAD", "EXPAN", //
 ];
 const TIME: &[&str] = &[
     "TIME", "DATE", "TICKS", "→HMS", "HMS→", "HMS+", //
