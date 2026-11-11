@@ -183,7 +183,7 @@ pub static ROWS: [&[Key]; 9] = [
         ),
     ],
     &[
-        key("ON", Cancel, ("CONT", Unsupported), ("OFF", Off)),
+        key("ON", Cancel, ("CONT", Cmd("CONT")), ("OFF", Off)),
         key("0", Text("0", 0), ("=", Text("=", 0)), ("→", Text("→ ", 0))),
         key(".", Text(".", 0), (",", Text(",", 0)), ("↵", Unsupported)),
         key("SPC", Text(" ", 0), ("π", Cmd("π")), ("∠", Unsupported)),

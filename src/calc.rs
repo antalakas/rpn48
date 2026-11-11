@@ -8,6 +8,7 @@ use crate::alg::{self, SYMBOLIC, is_symbolic};
 use crate::menu::Menu;
 use crate::obj::{Base, Fmt, Node, Obj, r12, set_base};
 use crate::parse::parse;
+use crate::pause::PauseFn;
 use crate::{array, binary, lists, more, units};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,6 +27,8 @@ pub enum Error {
     NonEmptyDir,
     Memory,
     Interrupted,
+    /// KILL, or ON at a prompt: the program stops, and nothing is reported.
+    Killed,
     /// DOERR with a message of the program's own.
     User(String),
     /// DOERR with an error number that has no message here.
@@ -51,6 +54,7 @@ impl fmt::Display for Error {
             Error::NonEmptyDir => "Non-Empty Directory",
             Error::Memory => "Insufficient Memory",
             Error::Interrupted => "Interrupted",
+            Error::Killed => "Killed",
             Error::User(m) => m,
             Error::Code(n) => return write!(f, "Error #{n:X}h"),
             Error::At(cmd, e) => return write!(f, "{cmd} Error: {e}"),
@@ -113,7 +117,7 @@ pub type Res<T> = Result<T, Error>;
 
 pub fn at(cmd: &str, e: Error) -> Error {
     match e {
-        Error::At(..) | Error::Interrupted | Error::Memory => e,
+        Error::At(..) | Error::Interrupted | Error::Killed | Error::Memory => e,
         e => Error::At(cmd.into(), Box::new(e)),
     }
 }
@@ -170,6 +174,16 @@ pub struct Calc {
     pub page: usize,
     /// Polled now and then while a program runs; true stops it.
     pub interrupt: Option<Box<dyn FnMut() -> bool>>,
+    /// Stops a program for HALT, PROMPT, INPUT and the like.
+    pub pause: Option<PauseFn>,
+    /// How many programs are stopped by HALT or PROMPT.
+    pub halted: usize,
+    /// Set by CONT, for whatever is waiting on a halted program.
+    pub cont: bool,
+    /// What DISP has put on the display's lines, empty when nothing has.
+    pub disp: Vec<String>,
+    /// FREEZE: the DISP lines stay up after the program ends.
+    pub frozen: bool,
     /// The arguments of the last command, for LASTARG.
     pub last_args: Vec<Obj>,
     /// The last error, for ERRN and ERRM.
@@ -187,6 +201,11 @@ pub struct Calc {
 impl Calc {
     pub fn new() -> Self {
         set_base(Base::Dec);
+        Calc::blank()
+    }
+
+    /// A calculator in its starting state, leaving the display's base alone.
+    pub fn blank() -> Self {
         Calc {
             stack: vec![],
             vars: vec![],
@@ -199,6 +218,11 @@ impl Calc {
             menu: Menu::Mth,
             page: 0,
             interrupt: None,
+            pause: None,
+            halted: 0,
+            cont: false,
+            disp: vec![],
+            frozen: false,
             last_args: vec![],
             last_err: None,
             locals: vec![],
@@ -302,7 +326,7 @@ impl Calc {
                 self.exec_nodes(default)
             }
             Node::IfErr { body, then, els } => match self.exec_nodes(body) {
-                Err(Error::Interrupted) => Err(Error::Interrupted),
+                Err(e @ (Error::Interrupted | Error::Killed)) => Err(e),
                 Err(e) => {
                     self.last_err = Some(e);
                     self.exec_nodes(then)
@@ -590,6 +614,7 @@ impl Calc {
             .or_else(|| self.lists_cmd(w))
             .or_else(|| self.stat_cmd(w))
             .or_else(|| self.more_cmd(w))
+            .or_else(|| self.pause_cmd(w))
         {
             return Some(r);
         }

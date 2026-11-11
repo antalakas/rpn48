@@ -61,7 +61,8 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
         Fmt::Sci(n) => format!("SCI {n}"),
         Fmt::Eng(n) => format!("ENG {n}"),
     };
-    let modes = format!("{}  {}  {fmt}", calc.angle.name(), calc.base.name());
+    let halt = if calc.halted > 0 { "HALT  " } else { "" };
+    let modes = format!("{halt}{}  {}  {fmt}", calc.angle.name(), calc.base.name());
     let path = format!(
         "{{ HOME {}}}",
         calc.path
@@ -80,11 +81,25 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(Paragraph::new(fit(msg, w)).red().bold(), row(y));
         y += 1;
     }
+    // A halted program's prompt, a line or more of it.
+    if let Some(p) = &app.prompt {
+        for l in p.lines().take(3) {
+            f.render_widget(Paragraph::new(fit(l, w)).yellow().bold(), row(y));
+            y += 1;
+        }
+    }
 
     // Stack levels fill whatever the other rows leave, highest level at the top.
     let cmd_rows = u16::from(!app.line.is_empty());
     let levels = inner.height.saturating_sub(y + cmd_rows + 1);
+    // What DISP put up covers the stack, one line each from the top.
     for r in 0..levels {
+        if !calc.disp.is_empty() {
+            let text = calc.disp.get(r as usize).map_or("", |s| s.as_str());
+            f.render_widget(Paragraph::new(fit(text, w)), row(y));
+            y += 1;
+            continue;
+        }
         let level = (levels - r) as usize;
         let label = format!("{level}:");
         let text = if level <= calc.stack.len() {

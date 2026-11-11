@@ -10,12 +10,14 @@ mod menu;
 mod more;
 mod obj;
 mod parse;
+mod pause;
 mod persist;
 mod stat;
 mod symbolic;
 mod ui;
 mod units;
 
+use std::cell::{Cell, RefCell};
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -29,11 +31,12 @@ use ratatui::crossterm::event::{
 use ratatui::crossterm::execute;
 use ratatui::layout::Rect;
 
-use calc::{Angle, Calc, Snapshot};
+use calc::{Angle, Calc, Error, Snapshot};
 use keypad::{Act, Key, Shift};
 use menu::Menu;
 use obj::{Fmt, Obj};
 use parse::{is_open, parse, parse_num};
+use pause::{Pause, PauseFn};
 
 const USAGE: &str = "\
 usage: rpn48            start the calculator
@@ -69,6 +72,7 @@ fn main() -> ExitCode {
 
 fn batch(src: &str) -> ExitCode {
     let mut calc = Calc::new();
+    calc.pause = Some(batch_pause());
     let r = parse(src).and_then(|nodes| calc.exec_nodes(&nodes));
     for o in &calc.stack {
         println!("{}", o.show(calc.fmt));
@@ -82,20 +86,104 @@ fn batch(src: &str) -> ExitCode {
     }
 }
 
+// Without a display, prompts go to stderr and input comes from stdin; there
+// is nothing to do while halted, so HALT is an error.
+fn batch_pause() -> PauseFn {
+    Box::new(|_, p| {
+        let read = || {
+            let mut s = String::new();
+            io::stdin().read_line(&mut s).map_err(|_| Error::Killed)?;
+            Ok(Some(s.trim_end_matches(['\r', '\n']).to_string()))
+        };
+        match p {
+            Pause::Halt => Err(Error::User("HALT needs the display".into())),
+            Pause::Prompt(s) | Pause::Message(s) => {
+                eprintln!("{s}");
+                read().map(|_| None)
+            }
+            Pause::Input(s, _) => {
+                eprint!("{s} ");
+                read()
+            }
+            Pause::Show(s) => {
+                eprintln!("{s}");
+                Ok(None)
+            }
+        }
+    })
+}
+
+thread_local! {
+    /// The terminal, shared by the App that runs a program and the one a
+    /// halted program hands the calculator to.
+    static TERMINAL: RefCell<Option<DefaultTerminal>> = const { RefCell::new(None) };
+    /// Set when the calculator was turned off while a program was halted.
+    static OFF: Cell<bool> = const { Cell::new(false) };
+}
+
+/// A halted program hands the calculator to a fresh App, which runs the
+/// usual loop until CONT or KILL (or ENTER, for INPUT), then hands it back.
+fn interactive_pause() -> PauseFn {
+    Box::new(|calc, p| {
+        let mut app = App::with(std::mem::replace(calc, Calc::blank()));
+        app.calc.pause = Some(interactive_pause());
+        let show = matches!(p, Pause::Show(_));
+        match p {
+            Pause::Halt | Pause::Show(_) => {}
+            Pause::Prompt(s) => app.prompt = Some(s),
+            Pause::Message(s) => (app.prompt, app.msgbox) = (Some(s), true),
+            Pause::Input(s, d) => {
+                app.prompt = Some(s);
+                app.input = true;
+                app.line = d.chars().collect();
+                app.cur = app.line.len();
+            }
+        }
+        let r = if show { draw(&app) } else { run(&mut app) };
+        app.calc.pause = None;
+        std::mem::swap(calc, &mut app.calc);
+        r.map_err(|e| Error::User(e.to_string()))?;
+        match app.resume {
+            _ if show => Ok(None),
+            Some(Resume::Input(s)) => Ok(Some(s)),
+            Some(Resume::Cont) => Ok(None),
+            Some(Resume::Kill) | None => {
+                OFF.set(app.quit);
+                Err(Error::Killed)
+            }
+        }
+    })
+}
+
+/// How a halted program goes on.
+enum Resume {
+    Cont,
+    Kill,
+    Input(String),
+}
+
 fn interactive() -> io::Result<()> {
     let mut app = App::new();
-    let mut terminal = ratatui::init();
+    TERMINAL.set(Some(ratatui::init()));
     // Clicks press the keys on the drawn keyboard.
-    let r = execute!(io::stdout(), EnableMouseCapture).and_then(|_| run(&mut terminal, &mut app));
+    let r = execute!(io::stdout(), EnableMouseCapture).and_then(|_| run(&mut app));
     let _ = execute!(io::stdout(), DisableMouseCapture);
     ratatui::restore();
     r
 }
 
-fn run(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
-    while !app.quit {
-        terminal.draw(|f| ui::draw(f, app))?;
-        let size = terminal.size()?;
+fn draw(app: &App) -> io::Result<()> {
+    TERMINAL.with_borrow_mut(|t| match t {
+        Some(t) => t.draw(|f| ui::draw(f, app)).map(drop),
+        None => Ok(()),
+    })
+}
+
+fn run(app: &mut App) -> io::Result<()> {
+    while !app.quit && app.resume.is_none() {
+        draw(app)?;
+        let size = TERMINAL.with_borrow(|t| t.as_ref().map(|t| t.size()).transpose())?;
+        let size = size.unwrap_or_default();
         match event::read()? {
             Event::Key(k) if k.kind == KeyEventKind::Press => app.key(k),
             Event::Mouse(m) if m.kind == MouseEventKind::Down(MouseButton::Left) => {
@@ -139,6 +227,12 @@ pub struct App {
     pub shift: Option<Shift>,
     memory: Option<PathBuf>,
     quit: bool,
+    /// While a program is halted: its prompt, whether it is waiting for
+    /// INPUT or for a key after MSGBOX, and how it is to go on.
+    pub prompt: Option<String>,
+    input: bool,
+    msgbox: bool,
+    resume: Option<Resume>,
 }
 
 impl App {
@@ -158,22 +252,38 @@ impl App {
             ));
         }
         calc.interrupt = Some(Box::new(interrupted));
+        calc.pause = Some(interactive_pause());
+        App {
+            message,
+            ..App::with(calc)
+        }
+    }
+
+    fn with(calc: Calc) -> Self {
         App {
             calc,
             line: vec![],
             cur: 0,
-            message,
+            message: None,
             history: vec![],
             hist: None,
             undo: vec![],
             editing: None,
             shift: None,
-            memory,
+            memory: persist::path(),
             quit: false,
+            prompt: None,
+            input: false,
+            msgbox: false,
+            resume: None,
         }
     }
 
     fn key(&mut self, k: KeyEvent) {
+        if self.msgbox {
+            return self.resume = Some(Resume::Cont);
+        }
+        self.unfreeze();
         let had_message = self.message.take().is_some();
         self.shift = None;
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
@@ -206,6 +316,10 @@ impl App {
     /// A click on the drawn keyboard: the key's own function, or after a
     /// shift key, the shifted one printed above it.
     fn press(&mut self, key: &Key) {
+        if self.msgbox {
+            return self.resume = Some(Resume::Cont);
+        }
+        self.unfreeze();
         self.message = None;
         let (label, act) = match self.shift.take() {
             _ if matches!(key.main, Act::Shift(_)) => (key.face, key.main),
@@ -251,6 +365,9 @@ impl App {
                 self.line.splice(self.cur..self.cur, s.chars());
                 self.cur += s.chars().count() - back;
             }
+            Act::Enter if self.input => {
+                self.resume = Some(Resume::Input(self.line.iter().collect()))
+            }
             Act::Enter => self.exec(if empty { "DUP" } else { "" }),
             Act::Backspace if empty => self.exec("DROP"),
             Act::Backspace => {
@@ -285,6 +402,7 @@ impl App {
                 "RAD"
             }),
             Act::Shift(s) => self.shift = if self.shift == Some(s) { None } else { Some(s) },
+            Act::Cancel if self.input => self.resume = Some(Resume::Kill),
             Act::Cancel => self.cancel(),
             Act::Off => self.quit = true,
         }
@@ -329,7 +447,8 @@ impl App {
             let now = if line.trim().is_empty() {
                 c != '-'
             } else {
-                !is_open(&line)
+                !self.input
+                    && !is_open(&line)
                     && (parse_num(last).is_some() || last.ends_with(['"', ')', '}', '»']))
             };
             if now {
@@ -366,7 +485,7 @@ impl App {
     // A command key runs its command after the command line, except while a
     // program is being typed, where the command's name goes into the text.
     fn command(&mut self, cmd: &str) {
-        if is_open(&self.line.iter().collect::<String>()) {
+        if self.input || is_open(&self.line.iter().collect::<String>()) {
             let text = format!(" {cmd} ");
             self.line.splice(self.cur..self.cur, text.chars());
             self.cur += text.chars().count();
@@ -398,11 +517,34 @@ impl App {
         } else {
             self.push_undo();
         }
-        if let Err(e) = self.calc.exec_nodes(&nodes) {
-            self.message = Some(e.report());
-            self.calc.last_err = Some(e);
+        match self.calc.exec_nodes(&nodes) {
+            Err(Error::Killed) => {
+                self.quit |= OFF.take();
+                if self.calc.halted > 0 {
+                    self.resume = Some(Resume::Kill);
+                }
+            }
+            Err(e) => {
+                self.message = Some(e.report());
+                self.calc.last_err = Some(e);
+            }
+            Ok(()) => {}
+        }
+        if std::mem::take(&mut self.calc.cont) {
+            self.resume = Some(Resume::Cont);
+        }
+        if !self.calc.frozen {
+            self.calc.disp.clear();
         }
         self.save();
+    }
+
+    /// A key after FREEZE takes the DISP lines down.
+    fn unfreeze(&mut self) {
+        if self.calc.frozen {
+            self.calc.frozen = false;
+            self.calc.disp.clear();
+        }
     }
 
     fn push_undo(&mut self) {
