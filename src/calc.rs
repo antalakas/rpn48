@@ -194,6 +194,9 @@ pub struct Calc {
     pub user_keys: Vec<(f64, Obj)>,
     /// Alarms, soonest first.
     pub alarms: Vec<crate::alarms::Alarm>,
+    /// Where I/O's transfer directory and print file go, when not beside
+    /// the memory file.
+    pub io_dir: Option<std::path::PathBuf>,
     /// The arguments of the last command, for LASTARG.
     pub last_args: Vec<Obj>,
     /// The last error, for ERRN and ERRM.
@@ -240,6 +243,7 @@ impl Calc {
             pict: vec![],
             user_keys: vec![],
             alarms: vec![],
+            io_dir: None,
             last_args: vec![],
             last_err: None,
             locals: vec![],
@@ -657,6 +661,7 @@ impl Calc {
             .or_else(|| self.plot_cmd(w))
             .or_else(|| self.keys_cmd(w))
             .or_else(|| self.alarm_cmd(w))
+            .or_else(|| self.io_cmd(w))
         {
             return Some(r);
         }

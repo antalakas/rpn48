@@ -20,6 +20,7 @@ mod rearrange;
 mod solve;
 mod stat;
 mod symbolic;
+mod transfer;
 mod ui;
 mod units;
 

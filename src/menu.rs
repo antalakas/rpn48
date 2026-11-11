@@ -36,6 +36,7 @@ pub enum Menu {
     Solvr,
     Plot,
     Chars,
+    Io,
     /// A category of the UNITS menu, by its place in units::CATEGORIES.
     UnitCat(u8),
 }
@@ -163,6 +164,10 @@ const PLOT: &[&str] = &[
     "PX→C",
     "C→PX", //
 ];
+const IO: &[&str] = &[
+    "SEND", "KGET", "RECV", "PR1", "PRST", "PRVAR", //
+    "CR",    //
+];
 const TIME: &[&str] = &[
     "TIME",
     "DATE",
@@ -180,7 +185,7 @@ const TIME: &[&str] = &[
 ];
 
 impl Menu {
-    pub const ALL: [Menu; 29] = [
+    pub const ALL: [Menu; 30] = [
         Menu::Mth,
         Menu::Vectr,
         Menu::Matr,
@@ -210,6 +215,7 @@ impl Menu {
         Menu::Solvr,
         Menu::Plot,
         Menu::Chars,
+        Menu::Io,
     ];
 
     /// The menus on F7–F11.
@@ -246,6 +252,7 @@ impl Menu {
             Menu::Solvr => "SOLVR",
             Menu::Plot => "PLOT",
             Menu::Chars => "CHARS",
+            Menu::Io => "I/O",
             Menu::UnitCat(i) => CATEGORIES[i as usize].0,
         }
     }
@@ -298,6 +305,7 @@ impl Menu {
             Menu::Time => TIME,
             Menu::Plot => PLOT,
             Menu::Chars => crate::keys::CHARS,
+            Menu::Io => IO,
             Menu::Units => &CATEGORIES.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
             Menu::UnitCat(i) => CATEGORIES[i as usize].1,
             Menu::Solvr => return calc.solvr_items(),

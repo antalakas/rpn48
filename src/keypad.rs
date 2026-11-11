@@ -180,7 +180,7 @@ pub static ROWS: [&[Key]; 9] = [
     ],
     &[
         key("▶", Shift(Shift::Right), NONE, NONE),
-        digit("1", no("I/O")),
+        digit("1", ("I/O", Menu(Menu::Io))),
         digit("2", no("LIBRARY")),
         digit("3", no("EQ LIB")),
         key(
