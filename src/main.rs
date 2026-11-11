@@ -6,6 +6,7 @@ mod binary;
 mod calc;
 mod carray;
 mod keypad;
+mod keys;
 mod lists;
 mod menu;
 mod more;
@@ -178,31 +179,12 @@ fn read_key(calc: &mut Calc, wait: bool) -> Result<Option<String>, Error> {
             return Ok(None);
         };
         let key = match ev {
-            Event::Key(k) if k.kind == KeyEventKind::Press => match k.code {
-                KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+            Event::Key(k) if k.kind == KeyEventKind::Press => {
+                if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) {
                     return Err(Error::Interrupted);
                 }
-                KeyCode::Char(ch) => keypad::find(|key| match key.main {
-                    Act::Text(s, 0) => s.chars().eq([ch]),
-                    Act::Op(o) => o == ch,
-                    _ => false,
-                }),
-                KeyCode::F(n @ 1..=6) => keypad::find(|key| key.main == Act::Soft(n as usize - 1)),
-                code => {
-                    let act = match code {
-                        KeyCode::Enter => Act::Enter,
-                        KeyCode::Backspace => Act::Backspace,
-                        KeyCode::Delete => Act::Delete,
-                        KeyCode::Left => Act::Left,
-                        KeyCode::Right => Act::Right,
-                        KeyCode::Up => Act::Up,
-                        KeyCode::Down => Act::Down,
-                        KeyCode::Esc => Act::Cancel,
-                        _ => Act::Nothing,
-                    };
-                    keypad::find(|key| act != Act::Nothing && key.main == act)
-                }
-            },
+                typed_key(&k).map(|(key, _)| key)
+            }
             Event::Mouse(m) if m.kind == MouseEventKind::Down(MouseButton::Left) => {
                 let size = TERMINAL.with_borrow(|t| t.as_ref().map(|t| t.size()).transpose());
                 let size = size.ok().flatten().unwrap_or_default();
@@ -219,6 +201,43 @@ fn read_key(calc: &mut Calc, wait: bool) -> Result<Option<String>, Error> {
             None => {}
         }
     }
+}
+
+/// The drawn keyboard's key a typed key stands for, and its shift plane:
+/// digits and operators, ENTER, the arrows, and F1–F6 for the soft keys,
+/// Shift and Alt giving their shifted planes.
+fn typed_key(k: &KeyEvent) -> Option<(&'static Key, u32)> {
+    let act = match k.code {
+        KeyCode::Char(ch) => {
+            return keypad::find(|key| match key.main {
+                Act::Text(s, 0) => s.chars().eq([ch]),
+                Act::Op(o) => o == ch,
+                _ => false,
+            })
+            .map(|key| (key, 1));
+        }
+        KeyCode::F(n @ 1..=6) => {
+            let plane = if k.modifiers.contains(KeyModifiers::SHIFT) {
+                2
+            } else if k.modifiers.contains(KeyModifiers::ALT) {
+                3
+            } else {
+                1
+            };
+            return keypad::find(|key| key.main == Act::Soft(n as usize - 1))
+                .map(|key| (key, plane));
+        }
+        KeyCode::Enter => Act::Enter,
+        KeyCode::Backspace => Act::Backspace,
+        KeyCode::Delete => Act::Delete,
+        KeyCode::Left => Act::Left,
+        KeyCode::Right => Act::Right,
+        KeyCode::Up => Act::Up,
+        KeyCode::Down => Act::Down,
+        KeyCode::Esc => Act::Cancel,
+        _ => return None,
+    };
+    keypad::find(|key| key.main == act).map(|key| (key, 1))
 }
 
 /// How a halted program goes on.
@@ -314,6 +333,10 @@ pub struct App {
     input: bool,
     msgbox: bool,
     resume: Option<Resume>,
+    /// ENTRY: commands are typed into the line rather than run.
+    pub entry: bool,
+    /// The level the interactive stack has picked.
+    pub stack_sel: Option<usize>,
 }
 
 impl App {
@@ -357,6 +380,8 @@ impl App {
             input: false,
             msgbox: false,
             resume: None,
+            entry: false,
+            stack_sel: None,
         }
     }
 
@@ -368,6 +393,15 @@ impl App {
         if self.calc.plot.is_some() {
             return self.plot_key(k.code);
         }
+        if self.stack_sel.is_some() {
+            return self.stack_key(k.code);
+        }
+        if self.calc.user_mode()
+            && let Some((key, plane)) = typed_key(&k)
+            && self.user_key(key, plane)
+        {
+            return;
+        }
         let had_message = self.message.take().is_some();
         self.shift = None;
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
@@ -375,6 +409,7 @@ impl App {
             KeyCode::Char('q' | 'c') if ctrl => Act::Off,
             KeyCode::Char('z') if ctrl => Act::Undo,
             KeyCode::Char('e') if ctrl => Act::Edit,
+            KeyCode::Char('s') if ctrl => Act::Stack,
             KeyCode::Char('u') if ctrl => Act::Cancel,
             KeyCode::Char(_) if ctrl => Act::Nothing,
             KeyCode::Char(c) => return self.type_char(c),
@@ -413,6 +448,16 @@ impl App {
         self.unfreeze();
         self.message = None;
         if self.calc.plot.take().is_some() {
+            return;
+        }
+        let plane = match self.shift {
+            None => 1,
+            Some(Shift::Left) => 2,
+            Some(Shift::Right) => 3,
+        };
+        if self.calc.user_mode() && !matches!(key.main, Act::Shift(_)) && self.user_key(key, plane)
+        {
+            self.shift = None;
             return;
         }
         let (label, act) = match self.shift.take() {
@@ -498,6 +543,10 @@ impl App {
             } else {
                 "RAD"
             }),
+            Act::UserToggle => self.calc.toggle_user(),
+            Act::EntryToggle => self.entry = !self.entry,
+            Act::Stack if !self.calc.stack.is_empty() => self.stack_sel = Some(1),
+            Act::Stack => {}
             Act::PolarToggle => self.exec(if self.calc.coord == Coord::Rect {
                 "CYLIN"
             } else {
@@ -570,6 +619,10 @@ impl App {
         match self.calc.menu.sub(&label) {
             Some(m) => (self.calc.menu, self.calc.page) = (m, 0),
             None if matches!(self.calc.menu, Menu::UnitCat(_)) => self.unit_key(&label, "*"),
+            None if self.calc.menu == Menu::Chars => {
+                self.line.splice(self.cur..self.cur, label.chars());
+                self.cur += label.chars().count();
+            }
             None if self.calc.menu == Menu::Solvr && label != "EXPR=" => {
                 self.solvr_key(&label, None)
             }
@@ -620,7 +673,7 @@ impl App {
     // A command key runs its command after the command line, except while a
     // program is being typed, where the command's name goes into the text.
     fn command(&mut self, cmd: &str) {
-        if self.input || is_open(&self.line.iter().collect::<String>()) {
+        if self.input || self.entry || is_open(&self.line.iter().collect::<String>()) {
             let text = format!(" {cmd} ");
             self.line.splice(self.cur..self.cur, text.chars());
             self.cur += text.chars().count();
@@ -692,6 +745,59 @@ impl App {
                 self.save();
             }
             _ => self.calc.plot = None,
+        }
+    }
+
+    /// In USER mode a key with an object assigned runs it; false when the
+    /// key has none and does its own function.
+    fn user_key(&mut self, key: &Key, plane: u32) -> bool {
+        let code = keypad::code(key) as f64 + plane as f64 / 10.0;
+        let Some(o) = self.calc.user_key(code) else {
+            return false;
+        };
+        let src = o.show(Fmt::Std);
+        self.command(&match o {
+            Obj::Prog(_) => format!("{src} EVAL"),
+            Obj::Name(n) => n,
+            _ => src,
+        });
+        true
+    }
+
+    // The interactive stack: the arrows pick a level, which ENTER (or e)
+    // copies to the command line, p copies to level 1, r and d roll up to
+    // level 1 or down from it, Delete drops, and Esc leaves.
+    fn stack_key(&mut self, code: KeyCode) {
+        let Some(n) = self.stack_sel else { return };
+        let depth = self.calc.stack.len();
+        let mut step = |cmd: String| {
+            self.push_undo();
+            if let Err(e) = self.calc.exec_nodes(&parse(&cmd).unwrap_or_default()) {
+                self.message = Some(e.report());
+            }
+            self.save();
+        };
+        match code {
+            KeyCode::Up if n < depth => self.stack_sel = Some(n + 1),
+            KeyCode::Down if n > 1 => self.stack_sel = Some(n - 1),
+            KeyCode::Char('p') => step(format!("{n} PICK")),
+            KeyCode::Char('r') => step(format!("{n} ROLL")),
+            KeyCode::Char('d') => step(format!("{n} ROLLD")),
+            KeyCode::Delete | KeyCode::Backspace => {
+                step(format!("{n} ROLL DROP"));
+                self.stack_sel = Some(n.min(self.calc.stack.len()).max(1));
+            }
+            KeyCode::Enter | KeyCode::Char('e') => {
+                let text = self.calc.stack[depth - n].show(Fmt::Std);
+                self.line.splice(self.cur..self.cur, text.chars());
+                self.cur += text.chars().count();
+                self.stack_sel = None;
+            }
+            KeyCode::Up | KeyCode::Down => {}
+            _ => self.stack_sel = None,
+        }
+        if self.calc.stack.is_empty() {
+            self.stack_sel = None;
         }
     }
 

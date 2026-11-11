@@ -190,6 +190,8 @@ pub struct Calc {
     /// PICT, shown while `plot` is set.
     pub plot: Option<Plot>,
     pub pict: Vec<Shape>,
+    /// Objects assigned to keys, by code rc.p.
+    pub user_keys: Vec<(f64, Obj)>,
     /// The arguments of the last command, for LASTARG.
     pub last_args: Vec<Obj>,
     /// The last error, for ERRN and ERRM.
@@ -234,6 +236,7 @@ impl Calc {
             frozen: false,
             plot: None,
             pict: vec![],
+            user_keys: vec![],
             last_args: vec![],
             last_err: None,
             locals: vec![],
@@ -649,6 +652,7 @@ impl Calc {
             .or_else(|| self.pause_cmd(w))
             .or_else(|| self.solve_cmd(w))
             .or_else(|| self.plot_cmd(w))
+            .or_else(|| self.keys_cmd(w))
         {
             return Some(r);
         }

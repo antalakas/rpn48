@@ -35,6 +35,7 @@ pub enum Menu {
     Units,
     Solvr,
     Plot,
+    Chars,
     /// A category of the UNITS menu, by its place in units::CATEGORIES.
     UnitCat(u8),
 }
@@ -116,6 +117,7 @@ const MODES: &[&str] = &[
 ];
 const FLAG: &[&str] = &["SF", "CF", "FS?", "FC?", "FS?C", "FC?C"];
 const MEMORY: &[&str] = &[
+    "ASN", "STOKEYS", "RCLKEYS", "DELKEYS", //
     "PATH", "CRDIR", "PGDIR", "HOME", "UPDIR", "VARS", //
     "PURGE", "STO+", "STO-", "STO*", "STO/", "INCR", //
     "DECR", //
@@ -167,7 +169,7 @@ const TIME: &[&str] = &[
 ];
 
 impl Menu {
-    pub const ALL: [Menu; 28] = [
+    pub const ALL: [Menu; 29] = [
         Menu::Mth,
         Menu::Vectr,
         Menu::Matr,
@@ -196,6 +198,7 @@ impl Menu {
         Menu::Units,
         Menu::Solvr,
         Menu::Plot,
+        Menu::Chars,
     ];
 
     /// The menus on F7–F11.
@@ -231,6 +234,7 @@ impl Menu {
             Menu::Units => "UNITS",
             Menu::Solvr => "SOLVR",
             Menu::Plot => "PLOT",
+            Menu::Chars => "CHARS",
             Menu::UnitCat(i) => CATEGORIES[i as usize].0,
         }
     }
@@ -282,6 +286,7 @@ impl Menu {
             Menu::Symbolic => SYMBOLIC,
             Menu::Time => TIME,
             Menu::Plot => PLOT,
+            Menu::Chars => crate::keys::CHARS,
             Menu::Units => &CATEGORIES.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
             Menu::UnitCat(i) => CATEGORIES[i as usize].1,
             Menu::Solvr => return calc.solvr_items(),

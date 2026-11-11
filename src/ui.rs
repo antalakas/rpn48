@@ -31,12 +31,16 @@ pub fn draw(f: &mut Frame, app: &App) {
 fn draw_display(f: &mut Frame, app: &App, area: Rect) {
     let calc = &app.calc;
     // Key hints go in the bottom border, so every row inside is the calculator's.
-    let hints = format!(
-        " {} {}/{} · Tab more · ^E edit · ^Z undo · ^Q quit ",
-        calc.menu.name(),
-        calc.page % calc.menu.pages(calc) + 1,
-        calc.menu.pages(calc)
-    );
+    let hints = if app.stack_sel.is_some() {
+        " STACK · ↑↓ level · ENTER echo · p pick · r roll · d rolld · Del drop · Esc back ".into()
+    } else {
+        format!(
+            " {} {}/{} · Tab more · ^E edit · ^Z undo · ^Q quit ",
+            calc.menu.name(),
+            calc.page % calc.menu.pages(calc) + 1,
+            calc.menu.pages(calc)
+        )
+    };
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .title(" rpn48 ")
@@ -67,7 +71,15 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
         Fmt::Sci(n) => format!("SCI {n}"),
         Fmt::Eng(n) => format!("ENG {n}"),
     };
-    let halt = if calc.halted > 0 { "HALT  " } else { "" };
+    let halt = [
+        (calc.halted > 0, "HALT  "),
+        (calc.user_mode(), "USER  "),
+        (app.entry, "PRG  "),
+    ]
+    .iter()
+    .filter(|(on, _)| *on)
+    .map(|(_, s)| *s)
+    .collect::<String>();
     // The calculator's annunciators for polar modes.
     let coord = match calc.coord {
         Coord::Rect => "",
@@ -124,7 +136,14 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
             String::new()
         };
         let text = fit(&text, w.saturating_sub(label.len() + 1));
-        f.render_widget(Paragraph::new(spread(&label, &text, w)), row(y));
+        let line = Paragraph::new(spread(&label, &text, w));
+        // The level the interactive stack has picked is shown inverted.
+        let line = if app.stack_sel == Some(level) {
+            line.reversed()
+        } else {
+            line
+        };
+        f.render_widget(line, row(y));
         y += 1;
     }
 

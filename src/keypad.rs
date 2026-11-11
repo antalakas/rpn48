@@ -46,6 +46,12 @@ pub enum Act {
     AngleToggle,
     /// Between rectangular and polar display, as POLAR does.
     PolarToggle,
+    /// USER mode on and off.
+    UserToggle,
+    /// Program-entry mode on and off, as ENTRY does.
+    EntryToggle,
+    /// The interactive stack.
+    Stack,
     Shift(Shift),
     Cancel,
     Off,
@@ -101,10 +107,10 @@ pub static ROWS: [&[Key]; 9] = [
             ("RAD", AngleToggle),
             ("POLAR", PolarToggle),
         ),
-        key("PRG", Menu(Menu::Prg), ("CHARS", Unsupported), NONE),
+        key("PRG", Menu(Menu::Prg), ("CHARS", Menu(Menu::Chars)), NONE),
         key("CST", Menu(Menu::Cst), ("MODES", Menu(Menu::Modes)), NONE),
         key("VAR", Menu(Menu::Var), ("MEMORY", Menu(Menu::Memory)), NONE),
-        key("▲", Up, ("STACK", Unsupported), NONE),
+        key("▲", Up, ("STACK", Stack), NONE),
         key("NXT", NextPage, ("PREV", PrevPage), ("MENU", Unsupported)),
     ],
     &[
@@ -157,8 +163,8 @@ pub static ROWS: [&[Key]; 9] = [
         key(
             "α",
             Unsupported,
-            ("USER", Unsupported),
-            ("ENTRY", Unsupported),
+            ("USER", UserToggle),
+            ("ENTRY", EntryToggle),
         ),
         digit("7", ("SOLVE", Menu(Menu::Solvr))),
         digit("8", ("PLOT", Menu(Menu::Plot))),

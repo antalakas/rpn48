@@ -44,6 +44,12 @@ pub fn save(calc: &Calc, path: &Path) -> io::Result<()> {
         Obj::Bin(calc.flags[1]),
         Obj::List(calc.path.iter().map(|d| Obj::Name(d.clone())).collect()),
         Obj::Str(calc.coord.name().into()),
+        Obj::List(
+            calc.user_keys
+                .iter()
+                .flat_map(|(c, o)| [o.clone(), Obj::Real(*c)])
+                .collect(),
+        ),
     ];
     // Written in rectangular form, which reads back whatever the modes.
     let shown = coord();
@@ -120,6 +126,16 @@ pub fn load(calc: &mut Calc, path: &Path) -> Result<(), String> {
             [Obj::Str(c), ..] if c == "SPHERE" => Coord::Sphere,
             _ => Coord::Rect,
         });
+        // And then the USER keyboard's assignments.
+        if let [_, Obj::List(keys), ..] = rest {
+            calc.user_keys = keys
+                .chunks(2)
+                .filter_map(|p| match p {
+                    [o, Obj::Real(c)] => Some((*c, o.clone())),
+                    _ => None,
+                })
+                .collect();
+        }
         calc.set_base(match base.as_str() {
             "HEX" => Base::Hex,
             "OCT" => Base::Oct,
@@ -153,7 +169,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rpn48-test-{}", std::process::id()));
         let path = dir.join("memory");
         let mut c = Calc::new();
-        c.exec_line("RAD CYLIN 4 FIX π 1 3 / (1,-2) \"say \\\"hi\\\"\" { A 1 { } } 'X' « → a « a 'Y' STO » » 'P' STO 7 'N' STO")
+        c.exec_line("« 1 » 11.2 ASN RAD CYLIN 4 FIX π 1 3 / (1,-2) \"say \\\"hi\\\"\" { A 1 { } } 'X' « → a « a 'Y' STO » » 'P' STO 7 'N' STO")
             .unwrap();
         c.exec_line("'X^2+1' [[1 2][3 4]] :T:5 [[ (1,2) 3 ][ 4 (0,-1) ]] 1_J/(kg*K) -40_°F HEX 16 STWS #FFh 5 SF -3 SF 'D' CRDIR D 'E' CRDIR E 9 'Z' STO")
             .unwrap();
@@ -167,5 +183,6 @@ mod tests {
         assert_eq!((d.base, d.wordsize, d.flags), (Base::Hex, 16, [16, 4]));
         assert_eq!(d.path, ["D", "E"]);
         assert_eq!(d.coord, crate::obj::Coord::Cylin);
+        assert_eq!(d.user_keys, c.user_keys);
     }
 }
