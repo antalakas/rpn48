@@ -8,7 +8,7 @@ use crate::alg::{self, SYMBOLIC, is_symbolic};
 use crate::menu::Menu;
 use crate::obj::{Base, Coord, Fmt, Node, Obj, r12, set_base, set_coord};
 use crate::parse::parse;
-use crate::pause::PauseFn;
+use crate::pause::{Pause, PauseFn};
 use crate::plot::{Plot, Shape};
 use crate::{array, binary, carray, consts, lists, matrix, more, stat, units};
 
@@ -213,6 +213,11 @@ pub struct Calc {
     pub(crate) seed: u64,
     depth: usize,
     steps: u64,
+    /// How many programs (and algebraics) are running inside each other.
+    pub(crate) prog_depth: usize,
+    /// Single-stepping: the program depth up to which the next step stops
+    /// for the debugger, usize::MAX to step into subprograms.
+    pub(crate) stepping: Option<usize>,
 }
 
 impl Calc {
@@ -257,6 +262,8 @@ impl Calc {
             subs: vec![],
             seed: 0,
             depth: 0,
+            prog_depth: 0,
+            stepping: None,
             steps: 0,
         }
     }
@@ -314,6 +321,13 @@ impl Calc {
         self.steps += 1;
         if self.steps.is_multiple_of(4096) && self.interrupt.as_mut().is_some_and(|f| f()) {
             return Err(Error::Interrupted);
+        }
+        if let Some(limit) = self.stepping
+            && (1..=limit).contains(&self.prog_depth)
+            && let Some(next) = self.step_text(n)
+        {
+            self.stepping = None;
+            self.pause_for(Pause::Prompt(format!("Next: {next}")))?;
         }
         match n {
             Node::Push(o) => {
@@ -374,6 +388,31 @@ impl Calc {
                 Ok(()) => els.as_ref().map_or(Ok(()), |e| self.exec_nodes(e)),
             },
         }
+    }
+
+    /// What the debugger shows of a step: an object or a command. The
+    /// words of a control structure are not steps of their own here.
+    fn step_text(&self, n: &Node) -> Option<String> {
+        match n {
+            Node::Push(o) => Some(o.display(self.fmt)),
+            Node::Word(w) => Some(w.clone()),
+            Node::LocalAlg { names, expr } => {
+                Some(format!("→ {} {}", names.join(" "), expr.show(self.fmt)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Runs a program's steps one level deeper; when the outermost one
+    /// ends, so does any single-stepping.
+    fn in_prog(&mut self, nodes: &[Node]) -> Res<()> {
+        self.prog_depth += 1;
+        let r = self.exec_nodes(nodes);
+        self.prog_depth -= 1;
+        if self.prog_depth == 0 {
+            self.stepping = None;
+        }
+        r
     }
 
     /// Runs `f` with `names` bound to objects taken from the stack.
@@ -555,7 +594,7 @@ impl Calc {
 
     pub(crate) fn eval_obj(&mut self, o: Obj) -> Res<()> {
         match o {
-            Obj::Prog(nodes) => self.exec_nodes(&nodes),
+            Obj::Prog(nodes) => self.in_prog(&nodes),
             Obj::Name(n) => {
                 if let Some(v) = self.local(&n) {
                     self.stack.push(v.clone());
@@ -572,7 +611,7 @@ impl Calc {
             Obj::Alg(e) => {
                 let mut nodes = vec![];
                 alg::to_nodes(&e, &mut nodes);
-                self.exec_nodes(&nodes)
+                self.in_prog(&nodes)
             }
             Obj::Tag(_, o) => self.eval_obj(*o),
             Obj::List(items) => {

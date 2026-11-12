@@ -43,6 +43,8 @@ pub enum Menu {
     /// PRG GROB and PRG PICT: grobs, and PICT with the drawing commands.
     Grob,
     Pict,
+    /// PRG RUN: the debugger.
+    Run,
     /// A category of the UNITS menu, by its place in units::CATEGORIES.
     UnitCat(u8),
     /// A temporary custom menu, from TMENU.
@@ -116,9 +118,10 @@ const STK: &[&str] = &[
 ];
 const PRG: &[&str] = &[
     "BRCH", "TEST", "TYPE", "LIST", "GROB", "PICT", //
-    "ERROR", "STK", "EVAL", "STO", "RCL", "PURGE", //
-    "VARS", "MEMORY", //
+    "ERROR", "RUN", "STK", "EVAL", "STO", "RCL", //
+    "PURGE", "VARS", "MEMORY", //
 ];
+const RUN: &[&str] = &["DBUG", "SST", "SST↓", "HALT", "KILL", "CONT"];
 const GROB: &[&str] = &[
     "→GROB", "BLANK", "GOR", "GXOR", "SUB", "REPL", //
     "→LCD", "LCD→", "SIZE", "ANIMATE", //
@@ -316,7 +319,7 @@ fn labels(calc: &Calc, l: &[Obj]) -> Vec<String> {
 }
 
 impl Menu {
-    pub const ALL: [Menu; 33] = [
+    pub const ALL: [Menu; 34] = [
         Menu::Mth,
         Menu::Vectr,
         Menu::Matr,
@@ -350,6 +353,7 @@ impl Menu {
         Menu::Eqlib,
         Menu::Grob,
         Menu::Pict,
+        Menu::Run,
     ];
 
     /// The menus on F7–F11.
@@ -390,6 +394,7 @@ impl Menu {
             Menu::Eqlib => "EQ LIB",
             Menu::Grob => "GROB",
             Menu::Pict => "PICT",
+            Menu::Run => "RUN",
             Menu::UnitCat(i) => CATEGORIES[i as usize].0,
             Menu::Tmenu => "CST",
             Menu::Msolvr => "MSOLVR",
@@ -449,6 +454,7 @@ impl Menu {
             Menu::Eqlib => EQLIB,
             Menu::Grob => GROB,
             Menu::Pict => PICT,
+            Menu::Run => RUN,
             Menu::Units => &CATEGORIES.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
             Menu::UnitCat(i) => CATEGORIES[i as usize].1,
             Menu::Solvr => return calc.solvr_items(),

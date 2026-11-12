@@ -176,9 +176,13 @@ variable has that name.
   `→ a b « … »` and `→ x 'x^2'`, `EVAL IFT IFTE`, comparisons and logic
   `== ≠ < > ≤ ≥ SAME AND OR XOR NOT`, tags `→TAG DTAG`, and flags
   `SF CF FS? FC? FS?C FC?C`. `HALT` stops a program with the calculator
-  usable until `CONT` (◀ ON) or `KILL`; `PROMPT` does so with a message,
-  `INPUT` asks for a line, `MSGBOX` waits for a key, and `DISP CLLCD FREEZE
-  WAIT` show things while it runs. `KEY` and `0 WAIT` read a key as its
+  usable until `CONT` (◀ ON) or `KILL`. The debugger, in PRG RUN:
+  `prog DBUG` starts a program halted before its first step, `SST` runs
+  one step (a subprogram as a whole) and halts again, and `SST↓` steps
+  into subprograms; the step to come is shown above the stack, as RUN's
+  `NEXT` would show it. These also step on from a `HALT`. `PROMPT` halts
+  with a message, `INPUT` asks for a line, `MSGBOX` waits for a key, and
+  `DISP CLLCD FREEZE WAIT` show things while it runs. `KEY` and `0 WAIT` read a key as its
   code, row-column-plane like the calculator's (`5` is 73.1). Without the display (`rpn48 '…'`),
   prompts go to stderr and input comes from stdin.
 - **Variables and directories:** `STO RCL PURGE VARS`, `STO+ STO- STO* STO/ INCR DECR`,
@@ -256,9 +260,9 @@ Libraries and the equation library's 300 equations: the calculator's
 libraries are ROM and machine-code extensions, which have no equivalent
 here (programs in directories do the same job), so `ATTACH DETACH LIBS
 LIBEVAL SYSEVAL` are not there either. Also the α keyboard (the terminal's
-own keyboard types letters), the debugger (`DBUG SST`), plug-in cards
-and their ports (`FREE MERGE PVARS PINIT`), and Kermit's server and
-packets (`SERVER XSERV PKT FINISH`), for which files stand in.
+own keyboard types letters), plug-in cards and their ports (`FREE MERGE
+PVARS PINIT`), and Kermit's server and packets (`SERVER XSERV PKT
+FINISH`), for which files stand in.
 
 ## License
 
