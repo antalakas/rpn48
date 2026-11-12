@@ -39,6 +39,8 @@ pub enum Menu {
     Io,
     /// A category of the UNITS menu, by its place in units::CATEGORIES.
     UnitCat(u8),
+    /// A temporary custom menu, from TMENU.
+    Tmenu,
 }
 
 const MTH: &[&str] = &[
@@ -130,7 +132,9 @@ const MEMORY: &[&str] = &[
     "ASN", "STOKEYS", "RCLKEYS", "DELKEYS", //
     "PATH", "CRDIR", "PGDIR", "HOME", "UPDIR", "VARS", //
     "PURGE", "STO+", "STO-", "STO*", "STO/", "INCR", //
-    "DECR", //
+    "DECR", "CLVAR", "ORDER", "MEM", "BYTES", "NEWOB", //
+    "VTYPE", "SNEG", "SINV", "SCONJ", "RCLF", "STOF", //
+    "MENU", "TMENU", "RCLMENU", "NDUPN", "VERSION", //
 ];
 const STAT: &[&str] = &[
     "Σ+",
@@ -233,6 +237,16 @@ const TIME: &[&str] = &[
     "ACKALL", //
 ];
 
+/// The labels of a custom menu's keys.
+fn labels(calc: &Calc, l: &[Obj]) -> Vec<String> {
+    l.iter()
+        .map(|o| match o {
+            Obj::Name(n) | Obj::Str(n) => n.clone(),
+            o => o.show(calc.fmt),
+        })
+        .collect()
+}
+
 impl Menu {
     pub const ALL: [Menu; 30] = [
         Menu::Mth,
@@ -303,6 +317,7 @@ impl Menu {
             Menu::Chars => "CHARS",
             Menu::Io => "I/O",
             Menu::UnitCat(i) => CATEGORIES[i as usize].0,
+            Menu::Tmenu => "CST",
         }
     }
 
@@ -362,16 +377,11 @@ impl Menu {
             // The custom menu lists what the variable CST holds.
             Menu::Cst => {
                 return match calc.global("CST") {
-                    Some(Obj::List(l)) => l
-                        .iter()
-                        .map(|o| match o {
-                            Obj::Name(n) | Obj::Str(n) => n.clone(),
-                            o => o.show(calc.fmt),
-                        })
-                        .collect(),
+                    Some(Obj::List(l)) => labels(calc, l),
                     _ => vec![],
                 };
             }
+            Menu::Tmenu => return labels(calc, &calc.tmenu),
         };
         fixed.iter().map(|s| s.to_string()).collect()
     }

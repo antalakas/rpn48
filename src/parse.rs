@@ -75,6 +75,7 @@ pub fn normalize(w: &str) -> String {
         ">=" => "≥",
         "!=" | "<>" => "≠",
         "FACT" => "!",
+        "LAST" => "LASTARG",
         _ => "",
     };
     if !alias.is_empty() {

@@ -175,6 +175,8 @@ pub struct Calc {
     pub flags: [u64; 2],
     pub menu: Menu,
     pub page: usize,
+    /// The labels of the menu TMENU shows.
+    pub tmenu: Vec<Obj>,
     /// Polled now and then while a program runs; true stops it.
     pub interrupt: Option<Box<dyn FnMut() -> bool>>,
     /// Stops a program for HALT, PROMPT, INPUT and the like.
@@ -233,6 +235,7 @@ impl Calc {
             flags: [0; 2],
             menu: Menu::Mth,
             page: 0,
+            tmenu: vec![],
             interrupt: None,
             pause: None,
             halted: 0,
@@ -661,6 +664,7 @@ impl Calc {
             .or_else(|| self.keys_cmd(w))
             .or_else(|| self.alarm_cmd(w))
             .or_else(|| self.io_cmd(w))
+            .or_else(|| self.system_cmd(w))
         {
             return Some(r);
         }
