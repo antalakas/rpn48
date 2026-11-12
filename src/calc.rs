@@ -10,7 +10,7 @@ use crate::obj::{Base, Coord, Fmt, Node, Obj, r12, set_base, set_coord};
 use crate::parse::parse;
 use crate::pause::PauseFn;
 use crate::plot::{Plot, Shape};
-use crate::{array, binary, carray, lists, matrix, more, stat, units};
+use crate::{array, binary, carray, consts, lists, matrix, more, stat, units};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -666,6 +666,8 @@ impl Calc {
             .or_else(|| self.io_cmd(w))
             .or_else(|| self.system_cmd(w))
             .or_else(|| self.pattern_cmd(w))
+            .or_else(|| self.numeric_cmd(w))
+            .or_else(|| self.consts_cmd(w))
         {
             return Some(r);
         }
@@ -1040,6 +1042,7 @@ pub(crate) fn pure_any(w: &str) -> Option<(usize, OpFn)> {
         .or_else(|| matrix::pure(w))
         .or_else(|| more::pure(w))
         .or_else(|| stat::pure(w))
+        .or_else(|| consts::pure(w))
         .or_else(|| units::pure(w))
 }
 

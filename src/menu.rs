@@ -46,6 +46,8 @@ pub enum Menu {
 const MTH: &[&str] = &[
     "VECTR", "MATR", "LIST", "HYP", "REAL", "BASE", //
     "PROB", "CMPL", "TRIG", "LOGS", "π", "e", //
+    "MINR", "MAXR", "CONST", "TINC", "TDELTA", "ZFACTOR", //
+    "DARCY", "F0λ", "SIDENS", //
 ];
 const VECTR: &[&str] = &[
     "ABS", "DOT", "CROSS", "V→", "→V2", "→V3", //
@@ -187,6 +189,8 @@ const SYMBOLIC: &[&str] = &[
     "COLCT", "→Q", "EQ→", "EVAL", "→NUM", "=", //
     "ISOL", "QUAD", "EXPAN", "STEQ", "RCEQ", "SOLVR", //
     "↑MATCH", "↓MATCH", "SHOW", "APPLY", "QUOTE", "→Qπ", //
+    "RKF", "RRK", "RKFSTEP", "RRKSTEP", "RKFERR", "RSBERR", //
+    "TVMROOT", "AMORT", //
 ];
 const PLOT: &[&str] = &[
     "DRAW",
