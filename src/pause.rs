@@ -5,7 +5,8 @@
 use std::time::{Duration, Instant};
 
 use crate::calc::{Calc, Error, Res};
-use crate::obj::Obj;
+use crate::obj::{Fmt, Node, Obj};
+use crate::parse::parse;
 
 /// What a program stops for.
 pub enum Pause {
@@ -44,6 +45,21 @@ impl Calc {
         self.halted -= usize::from(halt);
         self.pause = Some(hook);
         r
+    }
+
+    /// An object typed in answer to a prompt; nothing typed is None.
+    fn ask_obj(&mut self, prompt: String, default: String) -> Res<Option<Obj>> {
+        let text = self
+            .pause_for(Pause::Input(prompt, default))?
+            .unwrap_or_default();
+        if text.trim().is_empty() {
+            return Ok(None);
+        }
+        match &parse(&text)?[..] {
+            [Node::Push(o)] => Ok(Some(o.clone())),
+            [Node::Word(w)] => Ok(Some(Obj::Name(w.clone()))),
+            nodes => Ok(Some(Obj::Prog(nodes.to_vec()))),
+        }
     }
 
     fn text_arg(&self) -> Res<String> {
@@ -141,12 +157,111 @@ impl Calc {
                 }
                 Ok(())
             }),
+            // "title" { items } pos CHOOSE: the item picked, by number, and 1;
+            // just 0 if nothing is. An item { label obj } gives its object.
+            "CHOOSE" => self.need(3).and_then(|_| {
+                let n = self.stack.len();
+                let (Obj::List(items), Obj::Real(pos)) = (&self.stack[n - 2], &self.stack[n - 1])
+                else {
+                    return Err(Error::BadType);
+                };
+                let items = items.clone();
+                let title = self.str_of(&self.stack[n - 3]);
+                let label = |c: &Calc, o: &Obj| match o {
+                    Obj::List(l) if l.len() == 2 => c.str_of(&l[0]),
+                    o => c.str_of(o),
+                };
+                let menu: Vec<String> = items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, o)| format!("{} {}", i + 1, label(self, o)))
+                    .collect();
+                let prompt = format!("{title}: {}", menu.join("  "));
+                let default = if *pos >= 1.0 {
+                    format!("{}", *pos as usize)
+                } else {
+                    String::new()
+                };
+                let text = self
+                    .pause_for(Pause::Input(prompt, default))?
+                    .unwrap_or_default();
+                self.stack.truncate(n - 3);
+                match text
+                    .trim()
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|k| items.get(k.wrapping_sub(1)))
+                {
+                    Some(o) => {
+                        self.stack.push(match o {
+                            Obj::List(l) if l.len() == 2 => l[1].clone(),
+                            o => o.clone(),
+                        });
+                        self.stack.push(Obj::Real(1.0));
+                    }
+                    None => self.stack.push(Obj::Real(0.0)),
+                }
+                Ok(())
+            }),
+            // "title" { fields } format { reset } { initial } INFORM: a value
+            // asked for each field, NOVAL where none is typed, and 1.
+            "INFORM" => self.need(5).and_then(|_| {
+                let n = self.stack.len();
+                let Obj::List(fields) = self.stack[n - 4].clone() else {
+                    return Err(Error::BadType);
+                };
+                let initial = match &self.stack[n - 1] {
+                    Obj::List(l) => l.clone(),
+                    _ => return Err(Error::BadType),
+                };
+                let title = self.str_of(&self.stack[n - 5]);
+                let mut values = vec![];
+                for (i, f) in fields.iter().enumerate() {
+                    let label = match f {
+                        Obj::List(l) => l.first().map(|o| self.str_of(o)).unwrap_or_default(),
+                        o => self.str_of(o),
+                    };
+                    let init = initial.get(i).filter(|o| !is_noval(o));
+                    let default = init.map(|o| o.show(Fmt::Std)).unwrap_or_default();
+                    let v = self.ask_obj(format!("{title} {label}"), default)?;
+                    values.push(v.unwrap_or(noval()));
+                }
+                self.stack.truncate(n - 5);
+                self.stack.push(Obj::List(values));
+                self.stack.push(Obj::Real(1.0));
+                Ok(())
+            }),
+            "NOVAL" => {
+                self.stack.push(noval());
+                Ok(())
+            }
+            // 'name' VISIT: the variable's contents edited and stored back.
+            "VISIT" | "VISITB" => self.need(1).and_then(|_| {
+                let Obj::Name(name) = self.peek(1).clone() else {
+                    return Err(Error::BadType);
+                };
+                let v = self.global(&name).cloned().ok_or(Error::Undefined)?;
+                if let Some(o) = self.ask_obj(name.clone(), v.show(Fmt::Std))? {
+                    self.store(name, o)?;
+                }
+                self.stack.pop();
+                Ok(())
+            }),
             "BEEP" => self.need(2).map(|_| {
                 self.stack.truncate(self.stack.len() - 2);
             }),
             _ => return None,
         })
     }
+}
+
+/// The empty value of an INFORM field.
+fn noval() -> Obj {
+    Obj::Name("NOVAL".into())
+}
+
+fn is_noval(o: &Obj) -> bool {
+    *o == noval()
 }
 
 #[cfg(test)]
@@ -179,5 +294,37 @@ mod tests {
         ));
         c.pause = None;
         assert!(c.exec_line("HALT").is_err());
+    }
+
+    /// A calculator whose prompts are answered from `answers` in turn.
+    fn answering(answers: &[&str]) -> Calc {
+        let mut c = Calc::new();
+        let mut answers: Vec<String> = answers.iter().rev().map(|s| s.to_string()).collect();
+        c.pause = Some(Box::new(move |_, p| {
+            Ok(match p {
+                Pause::Input(..) => answers.pop(),
+                _ => None,
+            })
+        }));
+        c
+    }
+
+    fn shown(c: &Calc) -> Vec<String> {
+        c.stack.iter().map(|o| o.show(c.fmt)).collect()
+    }
+
+    #[test]
+    fn dialogs() {
+        let mut c = answering(&["2", ""]);
+        c.exec_line("\"Pick\" { A { \"Two\" 2 } } 1 CHOOSE \"Pick\" { A } 1 CHOOSE")
+            .unwrap();
+        assert_eq!(shown(&c), ["2", "1", "0"]);
+        let mut c = answering(&["5", "", "'X+1'"]);
+        c.exec_line("\"Form\" { \"A\" \"B\" \"C\" } { } { } { 1 2 3 } INFORM")
+            .unwrap();
+        assert_eq!(shown(&c), ["{ 5 NOVAL 'X+1' }", "1"]);
+        let mut c = answering(&["{ 1 2 3 }"]);
+        c.exec_line("{ 1 2 } 'L' STO 'L' VISIT L").unwrap();
+        assert_eq!(shown(&c), ["{ 1 2 3 }"]);
     }
 }
