@@ -210,4 +210,21 @@ mod tests {
         assert_eq!(d.user_keys, c.user_keys);
         assert_eq!(d.alarms, c.alarms);
     }
+
+    #[test]
+    fn round_trip_of_this_rounds_state() {
+        let dir = std::env::temp_dir().join(format!("rpn48-test2-{}", std::process::id()));
+        let path = dir.join("memory");
+        let mut c = Calc::new();
+        c.exec_line("{ 'A=W*H' 'P=2*(W+H)' } STEQ MINIT { W } MUSER 0 2 XVOL (1,1) AXES 2 ATICK 'T' DEPND EXPFIT")
+            .unwrap();
+        c.exec_line("2_mol^-1 'U' STO 'NA' CONST [[1 2][3 4]] EGV 2400 BAUD 3 SF 1 2 3 3 ROW→")
+            .unwrap();
+        save(&c, &path).unwrap();
+        let mut d = Calc::new();
+        load(&mut d, &path).unwrap();
+        fs::remove_dir_all(dir).unwrap();
+        assert_eq!(d.stack, c.stack);
+        assert_eq!(d.vars, c.vars);
+    }
 }
