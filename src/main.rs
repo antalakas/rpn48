@@ -22,6 +22,7 @@ mod pause;
 mod persist;
 mod plot;
 mod plot3d;
+mod port;
 mod pretty;
 mod rearrange;
 mod solve;
@@ -60,7 +61,7 @@ const USAGE: &str = "\
 usage: rpn48            start the calculator
        rpn48 <input>    run <input> on an empty stack and print the stack
 
-Memory (stack, variables, modes) is kept in $XDG_DATA_HOME/rpn48/memory.";
+Memory (stack, variables, ports, modes) is kept in $XDG_DATA_HOME/rpn48/memory.";
 
 const UNDO_LEVELS: usize = 100;
 
@@ -97,6 +98,7 @@ fn batch(src: &str) -> ExitCode {
     }
     match r {
         Ok(()) => ExitCode::SUCCESS,
+        Err(Error::Killed) if calc.off => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("{}", e.report());
             ExitCode::FAILURE
@@ -381,6 +383,8 @@ impl App {
                 bad.display()
             ));
         }
+        calc.starts.insert(0, alarms::now());
+        calc.starts.truncate(4);
         calc.interrupt = Some(Box::new(interrupted));
         calc.pause = Some(interactive_pause());
         App {
@@ -684,6 +688,10 @@ impl App {
             None if self.calc.menu == Menu::Msolvr && label == "ALL" => self.command("'ALL' MROOT"),
             None if self.calc.menu == Menu::Msolvr => self.solvr_key(&label, None),
             None if self.calc.menu == Menu::Conlib => self.command(&format!("'{label}' CONST")),
+            // A port's key runs its backup object.
+            None if let Menu::Port(p) = self.calc.menu => {
+                self.command(&format!(":{p}:{label} EVAL"))
+            }
             None => self.command(&label),
         }
     }
@@ -780,7 +788,7 @@ impl App {
         }
         match self.calc.exec_nodes(&nodes) {
             Err(Error::Killed) => {
-                self.quit |= OFF.take();
+                self.quit |= OFF.take() || std::mem::take(&mut self.calc.off);
                 if self.calc.halted > 0 {
                     self.resume = Some(Resume::Kill);
                 }

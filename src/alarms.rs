@@ -105,7 +105,7 @@ fn real_arg(o: &Obj) -> Res<f64> {
 }
 
 /// Seconds since 1970 as the date MM.DDYYYY and time HH.MMSS.
-fn date_time(t: f64) -> (f64, f64) {
+pub(crate) fn date_time(t: f64) -> (f64, f64) {
     let secs = t as libc::time_t;
     // SAFETY: localtime_r only writes the tm it is given.
     let tm = unsafe {

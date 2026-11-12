@@ -123,8 +123,10 @@ impl Calc {
                     .iter()
                     .map(|(n, o)| 6.0 + n.len() as f64 + bytes(o))
                     .sum::<f64>()
-                    + self.stack.iter().map(bytes).sum::<f64>();
-                self.stack.push(Obj::Real((MEMORY - used).max(0.0).floor()));
+                    + self.stack.iter().map(bytes).sum::<f64>()
+                    + crate::port::used(&self.ports[0]);
+                let total = MEMORY + if self.merged { crate::port::CARD } else { 0.0 };
+                self.stack.push(Obj::Real((total - used).max(0.0).floor()));
                 Ok(())
             }
             "BYTES" => self.pop().map(|o| {

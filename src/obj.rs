@@ -316,7 +316,8 @@ fn write_obj(out: &mut String, o: &Obj, fmt: Fmt, top: bool) {
             out.push(':');
             out.push_str(t);
             out.push(':');
-            write_obj(out, o, fmt, true);
+            // A tagged name is written bare, :1:NAME, and reads back so.
+            write_obj(out, o, fmt, !matches!(**o, Obj::Name(_)));
         }
         Obj::Dir(vars) => {
             out.push_str("DIR");

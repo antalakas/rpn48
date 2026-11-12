@@ -45,6 +45,9 @@ pub enum Menu {
     Pict,
     /// PRG RUN: the debugger.
     Run,
+    /// LIBRARY: the ports, and in each its backup objects.
+    Library,
+    Port(u8),
     /// A category of the UNITS menu, by its place in units::CATEGORIES.
     UnitCat(u8),
     /// A temporary custom menu, from TMENU.
@@ -158,7 +161,9 @@ const MEMORY: &[&str] = &[
     "PURGE", "STO+", "STO-", "STO*", "STO/", "INCR", //
     "DECR", "CLVAR", "ORDER", "MEM", "BYTES", "NEWOB", //
     "VTYPE", "SNEG", "SINV", "SCONJ", "RCLF", "STOF", //
-    "MENU", "TMENU", "RCLMENU", "NDUPN", "VERSION", //
+    "MENU", "TMENU", "RCLMENU", "NDUPN", "VERSION", "WSLOG", //
+    "PVARS", "MERGE", "FREE", "PINIT", "ARCHIVE", "RESTORE", //
+    "OFF",     //
 ];
 const STAT: &[&str] = &[
     "Σ+",
@@ -319,7 +324,7 @@ fn labels(calc: &Calc, l: &[Obj]) -> Vec<String> {
 }
 
 impl Menu {
-    pub const ALL: [Menu; 34] = [
+    pub const ALL: [Menu; 35] = [
         Menu::Mth,
         Menu::Vectr,
         Menu::Matr,
@@ -354,6 +359,7 @@ impl Menu {
         Menu::Grob,
         Menu::Pict,
         Menu::Run,
+        Menu::Library,
     ];
 
     /// The menus on F7–F11.
@@ -395,6 +401,8 @@ impl Menu {
             Menu::Grob => "GROB",
             Menu::Pict => "PICT",
             Menu::Run => "RUN",
+            Menu::Library => "LIBRARY",
+            Menu::Port(n) => ["PORT0", "PORT1", "PORT2"][n as usize],
             Menu::UnitCat(i) => CATEGORIES[i as usize].0,
             Menu::Tmenu => "CST",
             Menu::Msolvr => "MSOLVR",
@@ -416,6 +424,12 @@ impl Menu {
         if self == Menu::Units {
             let i = CATEGORIES.iter().position(|(n, _)| *n == label)?;
             return Some(Menu::UnitCat(i as u8));
+        }
+        if self == Menu::Library {
+            return ["PORT0", "PORT1", "PORT2"]
+                .iter()
+                .position(|p| *p == label)
+                .map(|n| Menu::Port(n as u8));
         }
         if (label == "TYPE" || label == "PICT") && self != Menu::Prg {
             return None;
@@ -455,6 +469,19 @@ impl Menu {
             Menu::Grob => GROB,
             Menu::Pict => PICT,
             Menu::Run => RUN,
+            // Port 1's card is not a port while it is merged.
+            Menu::Library => {
+                return (0..crate::port::PORTS)
+                    .filter(|&p| p != 1 || !calc.merged)
+                    .map(|p| format!("PORT{p}"))
+                    .collect();
+            }
+            Menu::Port(n) => {
+                return calc.ports[n as usize]
+                    .iter()
+                    .map(|(n, _)| n.clone())
+                    .collect();
+            }
             Menu::Units => &CATEGORIES.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
             Menu::UnitCat(i) => CATEGORIES[i as usize].1,
             Menu::Solvr => return calc.solvr_items(),

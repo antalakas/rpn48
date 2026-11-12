@@ -57,6 +57,20 @@ pub fn save(calc: &Calc, path: &Path) -> io::Result<()> {
                 .collect(),
         ),
         Obj::Real(crate::alarms::clock_offset()),
+        Obj::List(
+            calc.ports
+                .iter()
+                .map(|objs| {
+                    Obj::List(
+                        objs.iter()
+                            .flat_map(|(n, v)| [Obj::Name(n.clone()), v.clone()])
+                            .collect(),
+                    )
+                })
+                .collect(),
+        ),
+        Obj::Real(if calc.merged { 1.0 } else { 0.0 }),
+        Obj::List(calc.starts.iter().map(|t| Obj::Real(*t)).collect()),
     ];
     // Written in rectangular form, which reads back whatever the modes.
     let shown = coord();
@@ -160,6 +174,37 @@ pub fn load(calc: &mut Calc, path: &Path) -> Result<(), String> {
         if let [_, _, _, Obj::Real(clock), ..] = rest {
             crate::alarms::set_clock_offset(*clock);
         }
+        // Then the ports, port 1's merging and the start times.
+        if let [
+            _,
+            _,
+            _,
+            _,
+            Obj::List(ports),
+            Obj::Real(merged),
+            Obj::List(starts),
+            ..,
+        ] = rest
+        {
+            for (port, objs) in calc.ports.iter_mut().zip(ports) {
+                let Obj::List(objs) = objs else { continue };
+                *port = objs
+                    .chunks(2)
+                    .filter_map(|p| match p {
+                        [Obj::Name(n), v] => Some((n.clone(), v.clone())),
+                        _ => None,
+                    })
+                    .collect();
+            }
+            calc.merged = *merged != 0.0;
+            calc.starts = starts
+                .iter()
+                .filter_map(|t| match t {
+                    Obj::Real(t) => Some(*t),
+                    _ => None,
+                })
+                .collect();
+        }
         calc.set_base(match base.as_str() {
             "HEX" => Base::Hex,
             "OCT" => Base::Oct,
@@ -220,11 +265,15 @@ mod tests {
             .unwrap();
         c.exec_line("2_mol^-1 'U' STO 'NA' CONST [[1 2][3 4]] EGV 2400 BAUD 3 SF 1 2 3 3 ROW→")
             .unwrap();
+        c.exec_line("# 4d # 2d BLANK :0:G STO « 1 » :2:P STO 1 MERGE")
+            .unwrap();
+        c.starts = vec![1.7e9, 1.6e9];
         save(&c, &path).unwrap();
         let mut d = Calc::new();
         load(&mut d, &path).unwrap();
         fs::remove_dir_all(dir).unwrap();
         assert_eq!(d.stack, c.stack);
         assert_eq!(d.vars, c.vars);
+        assert_eq!((&d.ports, d.merged, &d.starts), (&c.ports, true, &c.starts));
     }
 }

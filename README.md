@@ -61,7 +61,7 @@ in the bottom-left column), then a key, for the shifted function: ◀ SIN is
 ASIN, ▶ EVAL is UNDO, ◀ - types `« »`. The top row of keys is the soft keys,
 labelled with the current menu; in the VAR menu, ◀ and ▶ on a soft key
 store into and recall that variable. The few functions rpn48 doesn't have
-(libraries, the α keyboard) are dimmed.
+(the α keyboard among them) are dimmed.
 
 The keyboard takes the mouse, so to select text on the screen, hold Shift
 while dragging (in most terminals).
@@ -215,7 +215,8 @@ variable has that name.
 - **I/O:** with files for cable and paper, in `$XDG_DATA_HOME/rpn48`:
   `SEND` (and `XSEND XPUT`) writes variables to `transfer/`, `KGET` (and
   `XRECV XGET`) reads them back by name and `RECV` reads everything there;
-  `ARCHIVE` backs up HOME there and `RESTORE` puts it back; `XMIT SRECV
+  `ARCHIVE` backs up HOME there (or to a port, `:2:BAK ARCHIVE`) and
+  `RESTORE` puts it back; `XMIT SRECV
   BUFLEN` use a file there as a looped-back serial line, and `BAUD PARITY
   CKSM TRANSIO` set IOPAR. `PR1 PRST PRSTC PRLCD PRVAR CR` append to `printer`.
 - **Constants and EQ LIB:** `'c' CONST` gives a constant of the GX's
@@ -234,7 +235,19 @@ variable has that name.
 - **Memory and menus:** `CLVAR CLUSR ORDER VTYPE MEM BYTES NEWOB NDUPN
   SNEG SINV SCONJ`, the flags as binary integers `RCLF STOF`, `MENU TMENU
   RCLMENU` (CST is menu 1, VAR 2 and MTH 3; the rest are numbered in
-  rpn48's own order), `VERSION`, and `LAST` for `LASTARG`.
+  rpn48's own order), `VERSION`, and `LAST` for `LASTARG`. `OFF` saves
+  memory and quits, ending a running program there (on the calculator it
+  would go on when turned back on); `WSLOG` gives the last four times
+  rpn48 was started, as `TSTR` writes them.
+- **Ports:** as on a GX with a 128K RAM card in each slot. Port 0 is part
+  of main memory, ports 1 and 2 are the cards. `obj :1:NAME STO` stores a
+  backup object there, `:1:NAME RCL`, `EVAL` and `PURGE` use it, and
+  `:&:NAME` looks in every port. `n PVARS` lists a port's backup objects
+  and its free memory (`"SYSRAM"` for port 0), `1 MERGE` adds port 1's
+  card to main memory, taking its backup objects into port 0, and
+  `{ names } 1 FREE` frees it again with those objects; `PINIT` has
+  nothing to do. LIBRARY (◀ 2) has a menu for each port, whose keys run
+  its backup objects. Ports are kept in memory with the rest.
 - **Display:** `STD`, `n FIX`, `n SCI`, `n ENG`, and `RECT CYLIN SPHERE`
   (▶ MTH toggles polar), which show complex numbers as `(r,∠θ)` and 2- and
   3-element vectors as `[ r ∠θ ]`, `[ r ∠θ z ]` or `[ r ∠θ ∠φ ]`.
@@ -260,9 +273,8 @@ Libraries and the equation library's 300 equations: the calculator's
 libraries are ROM and machine-code extensions, which have no equivalent
 here (programs in directories do the same job), so `ATTACH DETACH LIBS
 LIBEVAL SYSEVAL` are not there either. Also the α keyboard (the terminal's
-own keyboard types letters), plug-in cards and their ports (`FREE MERGE
-PVARS PINIT`), and Kermit's server and packets (`SERVER XSERV PKT
-FINISH`), for which files stand in.
+own keyboard types letters), ROM cards, and Kermit's server and packets
+(`SERVER XSERV PKT FINISH`), for which files stand in.
 
 ## License
 
