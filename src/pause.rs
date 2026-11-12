@@ -1,5 +1,6 @@
 //! Commands that stop a program to show something or wait for the user:
-//! HALT and CONT, PROMPT, INPUT, MSGBOX, DISP, WAIT. How the stopping is
+//! HALT and CONT, the debugger's DBUG SST SST↓, PROMPT, INPUT, MSGBOX,
+//! DISP, WAIT. How the stopping is
 //! done is up to whoever runs the calculator, through `Calc::pause`.
 
 use std::time::{Duration, Instant};
@@ -82,6 +83,28 @@ impl Calc {
     pub(crate) fn pause_cmd(&mut self, w: &str) -> Option<Res<()>> {
         Some(match w {
             "HALT" => self.pause_for(Pause::Halt).map(drop),
+            // prog DBUG: the program halted before its first step, for SST.
+            "DBUG" => self.pop().and_then(|o| {
+                self.stepping = Some(usize::MAX);
+                let r = self.eval_obj(o);
+                if self.prog_depth == 0 {
+                    self.stepping = None;
+                }
+                r
+            }),
+            // A halted program's next step, then halted again; SST runs a
+            // subprogram whole, SST↓ halts at the subprogram's first step.
+            "SST" | "SST↓" => {
+                if self.halted > 0 {
+                    self.stepping = Some(if w == "SST" {
+                        self.prog_depth
+                    } else {
+                        usize::MAX
+                    });
+                    self.cont = true;
+                }
+                Ok(())
+            }
             "CONT" => {
                 self.cont = self.halted > 0;
                 Ok(())
@@ -271,6 +294,9 @@ fn is_noval(o: &Obj) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
     use super::Pause;
     use crate::calc::{Calc, Error};
 
@@ -312,6 +338,71 @@ mod tests {
             })
         }));
         c
+    }
+
+    /// A calculator that answers each stop with the next of `cmds` (SST
+    /// once they run out), noting what each stop showed.
+    fn debugging(cmds: &[&str]) -> (Calc, Rc<RefCell<Vec<String>>>) {
+        let mut c = Calc::new();
+        let seen = Rc::new(RefCell::new(vec![]));
+        let log = seen.clone();
+        let mut cmds: Vec<String> = cmds.iter().rev().map(|s| s.to_string()).collect();
+        c.pause = Some(Box::new(move |c, p| {
+            log.borrow_mut().push(match p {
+                Pause::Prompt(s) => s,
+                Pause::Halt => "HALT".into(),
+                _ => return Ok(None),
+            });
+            let cmd = cmds.pop().unwrap_or_else(|| "SST".into());
+            c.exec_line(&cmd)?;
+            Ok(None)
+        }));
+        (c, seen)
+    }
+
+    #[test]
+    fn debugger() {
+        let (mut c, seen) = debugging(&[]);
+        c.exec_line("« 1 2 + 3 * » DBUG").unwrap();
+        assert_eq!(shown(&c), ["9"]);
+        assert_eq!(
+            *seen.borrow(),
+            ["Next: 1", "Next: 2", "Next: +", "Next: 3", "Next: *"]
+        );
+        // Once it is done, programs run straight through again.
+        c.exec_line("« 4 5 » EVAL").unwrap();
+        assert_eq!(seen.borrow().len(), 5);
+
+        // SST runs a subprogram as one step; SST↓ steps through it.
+        let (mut c, seen) = debugging(&[]);
+        c.exec_line("« 10 + » 'TEN' STO « 1 TEN 2 » DBUG").unwrap();
+        assert_eq!(*seen.borrow(), ["Next: 1", "Next: TEN", "Next: 2"]);
+        assert_eq!(shown(&c), ["11", "2"]);
+        let (mut c, seen) = debugging(&["SST", "SST↓"]);
+        c.exec_line("« 10 + » 'TEN' STO « 1 TEN 2 » 'P' STO 'P' DBUG")
+            .unwrap();
+        assert_eq!(
+            *seen.borrow(),
+            ["Next: 1", "Next: TEN", "Next: 10", "Next: +", "Next: 2"]
+        );
+
+        // CONT runs the rest; SST after HALT steps from there.
+        let (mut c, seen) = debugging(&["SST", "CONT"]);
+        c.exec_line("« 1 2 3 » DBUG").unwrap();
+        assert_eq!(*seen.borrow(), ["Next: 1", "Next: 2"]);
+        assert_eq!(shown(&c), ["1", "2", "3"]);
+        let (mut c, seen) = debugging(&["SST", "CONT"]);
+        c.exec_line("« 1 HALT 2 IF 1 THEN 3 END » EVAL").unwrap();
+        assert_eq!(*seen.borrow(), ["HALT", "Next: 2"]);
+        assert_eq!(shown(&c), ["1", "2", "3"]);
+        // Inside a structure, its parts are the steps.
+        let (mut c, seen) = debugging(&[]);
+        c.exec_line("« IF 0 THEN 5 ELSE 6 END » DBUG").unwrap();
+        assert_eq!(*seen.borrow(), ["Next: 0", "Next: 6"]);
+
+        let (mut c, _) = debugging(&["SST", "KILL"]);
+        assert_eq!(c.exec_line("« 1 2 3 » DBUG"), Err(Error::Killed));
+        assert_eq!(shown(&c), ["1"]);
     }
 
     fn shown(c: &Calc) -> Vec<String> {
