@@ -96,10 +96,6 @@ const fn digit(face: &'static str, left: (&'static str, Act)) -> Key {
     key(face, Text(face, 0), left, NONE)
 }
 
-const fn no(label: &'static str) -> (&'static str, Act) {
-    (label, Unsupported)
-}
-
 const fn soft(i: usize) -> Key {
     key("", Soft(i), ("", SoftSto(i)), ("", SoftRcl(i)))
 }
@@ -182,7 +178,7 @@ pub static ROWS: [&[Key]; 9] = [
     &[
         key("▶", Shift(Shift::Right), NONE, NONE),
         digit("1", ("I/O", Menu(Menu::Io))),
-        digit("2", no("LIBRARY")),
+        digit("2", ("LIBRARY", Menu(Menu::Library))),
         digit("3", ("EQ LIB", Menu(Menu::Eqlib))),
         key(
             "-",

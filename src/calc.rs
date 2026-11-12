@@ -218,6 +218,13 @@ pub struct Calc {
     /// Single-stepping: the program depth up to which the next step stops
     /// for the debugger, usize::MAX to step into subprograms.
     pub(crate) stepping: Option<usize>,
+    /// The ports' backup objects, and whether port 1's card is merged.
+    pub ports: [Vec<(String, Obj)>; crate::port::PORTS],
+    pub merged: bool,
+    /// Set by OFF, for whoever runs the calculator to quit.
+    pub off: bool,
+    /// When rpn48 was started, the newest first, for WSLOG.
+    pub starts: Vec<f64>,
 }
 
 impl Calc {
@@ -264,6 +271,10 @@ impl Calc {
             depth: 0,
             prog_depth: 0,
             stepping: None,
+            ports: Default::default(),
+            merged: false,
+            off: false,
+            starts: vec![],
             steps: 0,
         }
     }
@@ -692,7 +703,7 @@ impl Calc {
 
     /// Runs `w` if it is a built-in command.
     fn builtin(&mut self, w: &str) -> Option<Res<()>> {
-        if let Some(r) = self.grob_cmd(w) {
+        if let Some(r) = self.grob_cmd(w).or_else(|| self.port_cmd(w)) {
             return Some(r);
         }
         if let Some((n, f)) = pure_any(w) {
