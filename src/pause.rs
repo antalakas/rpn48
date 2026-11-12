@@ -32,7 +32,7 @@ pub type PauseFn = Box<dyn FnMut(&mut Calc, Pause) -> Res<Option<String>>>;
 pub const LINES: usize = 7;
 
 impl Calc {
-    fn pause_for(&mut self, p: Pause) -> Res<Option<String>> {
+    pub(crate) fn pause_for(&mut self, p: Pause) -> Res<Option<String>> {
         let Some(mut hook) = self.pause.take() else {
             return match p {
                 Pause::Show(_) | Pause::Key(false) => Ok(None),
@@ -65,6 +65,18 @@ impl Calc {
     fn text_arg(&self) -> Res<String> {
         self.need(1)?;
         Ok(self.str_of(self.peek(1)))
+    }
+
+    /// Waits s seconds, or until interrupted.
+    pub(crate) fn sleep(&mut self, s: f64) -> Res<()> {
+        let end = Instant::now() + Duration::from_secs_f64(s);
+        while Instant::now() < end {
+            if self.interrupt.as_mut().is_some_and(|f| f()) {
+                return Err(Error::Interrupted);
+            }
+            std::thread::sleep(Duration::from_millis(20).min(end - Instant::now()));
+        }
+        Ok(())
     }
 
     pub(crate) fn pause_cmd(&mut self, w: &str) -> Option<Res<()>> {
@@ -148,14 +160,7 @@ impl Calc {
                     return Err(Error::BadValue);
                 }
                 self.stack.pop();
-                let end = Instant::now() + Duration::from_secs_f64(s);
-                while Instant::now() < end {
-                    if self.interrupt.as_mut().is_some_and(|f| f()) {
-                        return Err(Error::Interrupted);
-                    }
-                    std::thread::sleep(Duration::from_millis(20).min(end - Instant::now()));
-                }
-                Ok(())
+                self.sleep(s)
             }),
             // "title" { items } pos CHOOSE: the item picked, by number, and 1;
             // just 0 if nothing is. An item { label obj } gives its object.
