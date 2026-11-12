@@ -169,8 +169,27 @@ impl Calc {
         Ok(())
     }
 
+    /// The next random number in [0, 1), to 12 digits.
+    pub(crate) fn random(&mut self) -> f64 {
+        if self.seed == 0 {
+            self.seed = now().0.to_bits() | 1;
+        }
+        // xorshift64*, taking 12 digits of the result.
+        let mut x = self.seed;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.seed = x;
+        let r = (x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 11) as f64 / (1u64 << 53) as f64;
+        (r * 1e12).floor() / 1e12
+    }
+
     pub(crate) fn more_cmd(&mut self, w: &str) -> Option<Res<()>> {
-        if let Some(r) = self.binary_cmd(w).or_else(|| self.array_cmd(w)) {
+        if let Some(r) = self
+            .binary_cmd(w)
+            .or_else(|| self.array_cmd(w))
+            .or_else(|| self.matrix_cmd(w))
+        {
             return Some(r);
         }
         Some(match w {
@@ -284,17 +303,8 @@ impl Calc {
                 Ok(())
             }),
             "RAND" => {
-                if self.seed == 0 {
-                    self.seed = now().0.to_bits() | 1;
-                }
-                // xorshift64*, taking 12 digits of the result.
-                let mut x = self.seed;
-                x ^= x >> 12;
-                x ^= x << 25;
-                x ^= x >> 27;
-                self.seed = x;
-                let r = (x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 11) as f64 / (1u64 << 53) as f64;
-                self.stack.push(Obj::Real((r * 1e12).floor() / 1e12));
+                let r = self.random();
+                self.stack.push(Obj::Real(r));
                 Ok(())
             }
             "RDZ" => self.need(1).and_then(|_| {

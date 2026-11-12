@@ -10,7 +10,7 @@ use crate::obj::{Base, Coord, Fmt, Node, Obj, r12, set_base, set_coord};
 use crate::parse::parse;
 use crate::pause::PauseFn;
 use crate::plot::{Plot, Shape};
-use crate::{array, binary, carray, lists, more, units};
+use crate::{array, binary, carray, lists, matrix, more, units};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -1033,6 +1033,7 @@ pub(crate) fn pure_any(w: &str) -> Option<(usize, OpFn)> {
         .or_else(|| array::pure(w))
         .or_else(|| binary::pure(w))
         .or_else(|| lists::pure(w))
+        .or_else(|| matrix::pure(w))
         .or_else(|| more::pure(w))
         .or_else(|| units::pure(w))
 }

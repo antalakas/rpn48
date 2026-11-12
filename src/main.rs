@@ -9,6 +9,7 @@ mod carray;
 mod keypad;
 mod keys;
 mod lists;
+mod matrix;
 mod menu;
 mod more;
 mod obj;

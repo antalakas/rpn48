@@ -52,7 +52,13 @@ const VECTR: &[&str] = &[
 const MATR: &[&str] = &[
     "→ARRY", "ARRY→", "IDN", "CON", "TRN", "DET", //
     "INV", "RDM", "RNRM", "CNRM", "TRACE", "SIZE", //
-    "ABS", "SQ", "GET", "PUT", //
+    "ABS", "SQ", "GET", "PUT", "GETI", "PUTI", //
+    "RANM", "→DIAG", "DIAG→", "RANK", "RREF", "COND", //
+    "SNRM", "SRAD", "LU", "QR", "LQ", "SVD", //
+    "SVL", "SCHUR", "EGV", "EGVL", "LSQ", "RSD", //
+    "→COL", "COL→", "COL+", "COL-", "CSWP", "RCI", //
+    "→ROW", "ROW→", "ROW+", "ROW-", "RSWP", "RCIJ", //
+    "PCOEF", "PROOT", "PEVAL", "FFT", "IFFT", //
 ];
 const LIST: &[&str] = &[
     "DOLIST", "DOSUBS", "NSUB", "ENDSUB", "STREAM", "SEQ", //
