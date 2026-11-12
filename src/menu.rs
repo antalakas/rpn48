@@ -37,18 +37,23 @@ pub enum Menu {
     Plot,
     Chars,
     Io,
+    /// EQ LIB: the constants library, the multiple-equation solver and the
+    /// utilities.
+    Eqlib,
     /// A category of the UNITS menu, by its place in units::CATEGORIES.
     UnitCat(u8),
     /// A temporary custom menu, from TMENU.
     Tmenu,
     /// The multiple-equation solver's variables.
     Msolvr,
+    /// The constants library: a key for each constant.
+    Conlib,
 }
 
 const MTH: &[&str] = &[
     "VECTR", "MATR", "LIST", "HYP", "REAL", "BASE", //
     "PROB", "CMPL", "TRIG", "LOGS", "π", "e", //
-    "MINR", "MAXR", "CONST", "TINC", "TDELTA", "ZFACTOR", //
+    "MINR", "MAXR", "CONLIB", "CONST", "TINC", "TDELTA", "ZFACTOR", //
     "DARCY", "F0λ", "SIDENS", //
 ];
 const VECTR: &[&str] = &[
@@ -255,6 +260,11 @@ const PLOT: &[&str] = &[
     "PX→C",
     "C→PX", //
 ];
+const EQLIB: &[&str] = &[
+    "CONLIB", "MINIT", "MSOLVR", "MROOT", "MUSER", "MCALC", //
+    "MITM", "ZFACTOR", "DARCY", "F0λ", "SIDENS", "TDELTA", //
+    "TINC",   //
+];
 const IO: &[&str] = &[
     "SEND", "KGET", "RECV", "PR1", "PRST", "PRVAR", //
     "CR", "PRSTC", "PRLCD", "DELAY", "ARCHIVE", "RESTORE", //
@@ -294,7 +304,7 @@ fn labels(calc: &Calc, l: &[Obj]) -> Vec<String> {
 }
 
 impl Menu {
-    pub const ALL: [Menu; 30] = [
+    pub const ALL: [Menu; 31] = [
         Menu::Mth,
         Menu::Vectr,
         Menu::Matr,
@@ -325,6 +335,7 @@ impl Menu {
         Menu::Plot,
         Menu::Chars,
         Menu::Io,
+        Menu::Eqlib,
     ];
 
     /// The menus on F7–F11.
@@ -362,9 +373,11 @@ impl Menu {
             Menu::Plot => "PLOT",
             Menu::Chars => "CHARS",
             Menu::Io => "I/O",
+            Menu::Eqlib => "EQ LIB",
             Menu::UnitCat(i) => CATEGORIES[i as usize].0,
             Menu::Tmenu => "CST",
             Menu::Msolvr => "MSOLVR",
+            Menu::Conlib => "CONLIB",
         }
     }
 
@@ -417,6 +430,7 @@ impl Menu {
             Menu::Plot => PLOT,
             Menu::Chars => crate::keys::CHARS,
             Menu::Io => IO,
+            Menu::Eqlib => EQLIB,
             Menu::Units => &CATEGORIES.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
             Menu::UnitCat(i) => CATEGORIES[i as usize].1,
             Menu::Solvr => return calc.solvr_items(),
@@ -430,6 +444,12 @@ impl Menu {
             }
             Menu::Tmenu => return labels(calc, &calc.tmenu),
             Menu::Msolvr => return calc.msolvr_items(),
+            Menu::Conlib => {
+                return crate::consts::CONSTANTS
+                    .iter()
+                    .map(|(n, ..)| n.to_string())
+                    .collect();
+            }
         };
         fixed.iter().map(|s| s.to_string()).collect()
     }

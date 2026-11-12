@@ -57,7 +57,7 @@ fn checksum(o: &Obj) -> u64 {
 fn menu_number(m: Menu) -> f64 {
     match m {
         Menu::Cst | Menu::Tmenu => 1.0,
-        Menu::Msolvr => 0.0,
+        Menu::Msolvr | Menu::Conlib => 0.0,
         Menu::Var => 2.0,
         m => {
             let rest = Menu::ALL

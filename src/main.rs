@@ -682,6 +682,7 @@ impl App {
             }
             None if self.calc.menu == Menu::Msolvr && label == "ALL" => self.command("'ALL' MROOT"),
             None if self.calc.menu == Menu::Msolvr => self.solvr_key(&label, None),
+            None if self.calc.menu == Menu::Conlib => self.command(&format!("'{label}' CONST")),
             None => self.command(&label),
         }
     }

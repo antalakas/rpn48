@@ -203,6 +203,10 @@ impl Calc {
                 self.stack.push(o.clone());
                 Ok(())
             }),
+            "CONLIB" => {
+                (self.menu, self.page) = (crate::menu::Menu::Conlib, 0);
+                Ok(())
+            }
             // The extremes of the reals rpn48 holds, 12 digits apiece.
             "MAXR" => {
                 self.stack.push(Obj::Real(1.79769313486E308));
