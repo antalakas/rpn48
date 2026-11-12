@@ -360,6 +360,14 @@ fn convert(x: f64, from: &[(String, f64)], to: &[(String, f64)]) -> Res<f64> {
 
 /// Reads units such as m/s^2 or kg*m^2/(s^2*K).
 pub fn parse_units(s: &str) -> Option<Units> {
+    // Units with only negative powers are written 1/mol.
+    if let Some(rest) = s.strip_prefix("1/") {
+        let inner = rest
+            .strip_prefix('(')
+            .and_then(|r| r.strip_suffix(')'))
+            .unwrap_or(rest);
+        return parse_units(inner).map(|u| scale(&u, -1.0));
+    }
     let cs: Vec<char> = s.chars().collect();
     let mut i = 0;
     let u = product(&cs, &mut i)?;
@@ -597,6 +605,10 @@ mod tests {
         assert_eq!(run("1_kg*m^2/(s^2*K)"), ["1_kg*m^2/(s^2*K)"]);
         assert_eq!(run("1_ft 1_m CONVERT"), [".3048_m"]);
         assert_eq!(run("100_°C 1_°F CONVERT"), ["212_°F"]);
+        assert_eq!(
+            run("2_mol^-1 3_1/mol + 1_1/(m*s)"),
+            ["5_1/mol", "1_1/(m*s)"]
+        );
         assert_eq!(
             run("100_°C 9_°F TINC 20_°C 32_°F TDELTA"),
             ["105_°C", "20_°C"]
