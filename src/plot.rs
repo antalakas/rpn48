@@ -390,6 +390,22 @@ impl Calc {
                     self.set_ppar(&p)
                 })
             }
+            // Ranges that fit the x and y columns of ΣDAT, whatever the plot type.
+            "SCLΣ" => {
+                let mut p = self.ppar();
+                let kind = std::mem::replace(&mut p.kind, "SCATTER".into());
+                self.set_ppar(&p)
+                    .and_then(|_| self.eval_word("AUTO"))
+                    .and_then(|_| {
+                        let mut p = self.ppar();
+                        p.kind = kind;
+                        self.set_ppar(&p)
+                    })
+            }
+            // The statistics plots: set the type, scale to the data and draw.
+            "SCATRPLOT" => self.exec_line("SCATTER SCLΣ DRAW"),
+            "BARPLOT" => self.exec_line("BAR AUTO DRAW"),
+            "HISTPLOT" => self.exec_line("HISTOGRAM AUTO DRAW"),
             "DRAW" => {
                 let p = self.ppar();
                 self.trace(&p).map(|shapes| {
@@ -541,5 +557,17 @@ mod tests {
         assert!(matches!(&c.pict[..], [Shape::Bars(b)] if b[2].2 == 2.0));
         c.exec_line("ERASE 'X^2+Y^2<4' STEQ TRUTH DRAW").unwrap();
         assert!(matches!(&c.pict[..], [Shape::Points(p)] if !p.is_empty()));
+    }
+
+    #[test]
+    fn statistics_plots() {
+        let mut c = Calc::new();
+        c.exec_line("[[1 2][3 8]] STOΣ FUNCTION SCLΣ PPAR").unwrap();
+        assert_eq!(
+            c.stack.last().unwrap().show(c.fmt),
+            "{ (.9,1.7) (3.1,8.3) X 0 (0,0) FUNCTION Y }"
+        );
+        c.exec_line("SCATRPLOT").unwrap();
+        assert!(matches!(&c.pict[..], [Shape::Points(p)] if p.len() == 2));
     }
 }

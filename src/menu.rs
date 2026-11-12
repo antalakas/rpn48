@@ -82,7 +82,10 @@ const BASE: &[&str] = &[
     "SL", "SR", "SLB", "SRB", "ASR", "NEG", //
     "RL", "RR", "RLB", "RRB", //
 ];
-const PROB: &[&str] = &["COMB", "PERM", "!", "RAND", "RDZ"];
+const PROB: &[&str] = &[
+    "COMB", "PERM", "!", "RAND", "RDZ", "UTPN", //
+    "UTPC", "UTPT", "UTPF", "NDIST", //
+];
 const CMPL: &[&str] = &[
     "R→C", "C→R", "RE", "IM", "CONJ", "ARG", //
     "ABS", "SIGN", "NEG", //
@@ -130,10 +133,50 @@ const MEMORY: &[&str] = &[
     "DECR", //
 ];
 const STAT: &[&str] = &[
-    "Σ+", "Σ-", "CLΣ", "NΣ", "TOT", "MEAN", //
-    "SDEV", "VAR", "MAXΣ", "MINΣ", "XCOL", "YCOL", //
-    "LR", "PREDY", "PREDX", "CORR", "COV", "ΣX", //
-    "ΣY", "ΣX2", "ΣY2", "ΣXY", //
+    "Σ+",
+    "Σ-",
+    "CLΣ",
+    "NΣ",
+    "TOT",
+    "MEAN", //
+    "SDEV",
+    "VAR",
+    "MAXΣ",
+    "MINΣ",
+    "XCOL",
+    "YCOL", //
+    "LR",
+    "PREDY",
+    "PREDX",
+    "CORR",
+    "COV",
+    "ΣX", //
+    "ΣY",
+    "ΣX2",
+    "ΣY2",
+    "ΣXY",
+    "COLΣ",
+    "STOΣ", //
+    "RCLΣ",
+    "LINFIT",
+    "LOGFIT",
+    "EXPFIT",
+    "PWRFIT",
+    "BESTFIT", //
+    "ΣLINE",
+    "PVAR",
+    "PSDEV",
+    "PCOV",
+    "BINS",
+    "SCLΣ", //
+    "SCATRPLOT",
+    "BARPLOT",
+    "HISTPLOT",
+    "UTPN",
+    "UTPC",
+    "UTPT", //
+    "UTPF",
+    "NDIST", //
 ];
 const SYMBOLIC: &[&str] = &[
     "∂", "∫", "Σ", "ROOT", "TAYLR", "|", //
