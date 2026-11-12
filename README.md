@@ -60,8 +60,13 @@ right-shifted one at the top right, in green. Click ◀ or ▶ (the shift keys
 in the bottom-left column), then a key, for the shifted function: ◀ SIN is
 ASIN, ▶ EVAL is UNDO, ◀ - types `« »`. The top row of keys is the soft keys,
 labelled with the current menu; in the VAR menu, ◀ and ▶ on a soft key
-store into and recall that variable. The few functions rpn48 doesn't have
-(the α keyboard among them) are dimmed.
+store into and recall that variable. α makes the keys of the top five
+rows type the letters at their right, A to Z: once for one letter, twice
+to lock it on (once with flag -60 set) and again to turn it off, with ◀
+before a key for lowercase and ▶ for a Greek letter, an arrow or a symbol
+(rpn48's own choice of them). The terminal's keyboard types letters
+anyway. The two functions rpn48 doesn't have, ▶ NXT's MENU and ▶ .'s ↵,
+are dimmed.
 
 The keyboard takes the mouse, so to select text on the screen, hold Shift
 while dragging (in most terminals).
@@ -272,9 +277,8 @@ For example, a recursive factorial:
 Libraries and the equation library's 300 equations: the calculator's
 libraries are ROM and machine-code extensions, which have no equivalent
 here (programs in directories do the same job), so `ATTACH DETACH LIBS
-LIBEVAL SYSEVAL` are not there either. Also the α keyboard (the terminal's
-own keyboard types letters), ROM cards, and Kermit's server and packets
-(`SERVER XSERV PKT FINISH`), for which files stand in.
+LIBEVAL SYSEVAL` are not there either. Also ROM cards, and Kermit's
+server and packets (`SERVER XSERV PKT FINISH`), for which files stand in.
 
 ## License
 

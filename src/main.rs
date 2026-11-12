@@ -335,6 +335,14 @@ fn next_event(wait: Option<Duration>) -> io::Result<Option<Event>> {
     event::read().map(Some)
 }
 
+/// α mode: off, for the next key only, or locked on.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Alpha {
+    Off,
+    One,
+    Lock,
+}
+
 pub struct App {
     pub calc: Calc,
     pub line: Vec<char>,
@@ -348,6 +356,8 @@ pub struct App {
     editing: Option<Obj>,
     /// A shift key clicked on the keyboard, applying to the next key clicked.
     pub shift: Option<Shift>,
+    /// α: the drawn keys type their letters.
+    pub alpha: Alpha,
     memory: Option<PathBuf>,
     quit: bool,
     /// While a program is halted: its prompt, whether it is waiting for
@@ -404,6 +414,7 @@ impl App {
             undo: vec![],
             editing: None,
             shift: None,
+            alpha: Alpha::Off,
             memory: persist::path(),
             quit: false,
             prompt: None,
@@ -500,6 +511,23 @@ impl App {
         if self.calc.plot.take().is_some() || self.view.take().is_some() || self.matrix.is_some() {
             return;
         }
+        // In α mode a key with a letter types it: lowercase after ◀, one of
+        // the special characters after ▶.
+        if self.alpha != Alpha::Off
+            && let Some(c) = keypad::letter(key)
+        {
+            let c = match self.shift.take() {
+                None => c,
+                Some(Shift::Left) => c.to_ascii_lowercase(),
+                Some(Shift::Right) => keypad::special(c),
+            };
+            self.line.insert(self.cur, c);
+            self.cur += 1;
+            if self.alpha == Alpha::One {
+                self.alpha = Alpha::Off;
+            }
+            return;
+        }
         let plane = match self.shift {
             None => 1,
             Some(Shift::Left) => 2,
@@ -521,6 +549,9 @@ impl App {
 
     fn act(&mut self, act: Act, label: &str) {
         let empty = self.line.is_empty();
+        if matches!(act, Act::Enter | Act::Cancel) {
+            self.alpha = Alpha::Off;
+        }
         match act {
             Act::Nothing => {}
             Act::Unsupported => self.message = Some(format!("{label} is not supported")),
@@ -612,6 +643,16 @@ impl App {
                 "RECT"
             }),
             Act::Shift(s) => self.shift = if self.shift == Some(s) { None } else { Some(s) },
+            // α once is for one key, twice locks it on (once, with flag -60
+            // set), and once more turns it off.
+            Act::Alpha => {
+                self.alpha = match self.alpha {
+                    Alpha::Off if self.calc.flags[1] & (1 << 59) != 0 => Alpha::Lock,
+                    Alpha::Off => Alpha::One,
+                    Alpha::One => Alpha::Lock,
+                    Alpha::Lock => Alpha::Off,
+                }
+            }
             Act::Cancel if self.input => self.resume = Some(Resume::Kill),
             Act::Cancel => self.cancel(),
             Act::Off => self.quit = true,
@@ -1059,5 +1100,45 @@ impl App {
         {
             self.message = Some(format!("Memory not saved: {e}"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Clicks the drawn keys whose faces are given; "◀" and "▶" are the
+    /// shift keys rather than the arrows.
+    fn click(app: &mut App, faces: &[&str]) {
+        for f in faces {
+            let key = match *f {
+                "◀" => keypad::find(|k| k.main == Act::Shift(Shift::Left)),
+                "▶" => keypad::find(|k| k.main == Act::Shift(Shift::Right)),
+                f => keypad::find(|k| k.face == f),
+            };
+            app.press(key.unwrap());
+        }
+    }
+
+    #[test]
+    fn alpha() {
+        let mut app = App::with(Calc::new());
+        // Once: one letter, then the keys are themselves again.
+        click(&mut app, &["α", "SIN", "7"]);
+        assert_eq!(app.line.iter().collect::<String>(), "S7");
+        // Twice: locked, with ◀ for lowercase and ▶ for the specials.
+        click(
+            &mut app,
+            &["α", "α", "MTH", "◀", "PRG", "▶", "'", "+/-", "α", "8"],
+        );
+        assert_eq!(app.line.iter().collect::<String>(), "S7GhτY8");
+        assert_eq!(app.alpha, Alpha::Off);
+        // ENTER ends it.
+        click(&mut app, &["α", "α", "ENTER"]);
+        assert_eq!(app.alpha, Alpha::Off);
+        // With flag -60 set, once locks.
+        app.calc.flags[1] |= 1 << 59;
+        click(&mut app, &["α"]);
+        assert_eq!(app.alpha, Alpha::Lock);
     }
 }
