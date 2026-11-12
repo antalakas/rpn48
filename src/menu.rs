@@ -41,6 +41,8 @@ pub enum Menu {
     UnitCat(u8),
     /// A temporary custom menu, from TMENU.
     Tmenu,
+    /// The multiple-equation solver's variables.
+    Msolvr,
 }
 
 const MTH: &[&str] = &[
@@ -190,7 +192,8 @@ const SYMBOLIC: &[&str] = &[
     "ISOL", "QUAD", "EXPAN", "STEQ", "RCEQ", "SOLVR", //
     "↑MATCH", "↓MATCH", "SHOW", "APPLY", "QUOTE", "→Qπ", //
     "RKF", "RRK", "RKFSTEP", "RRKSTEP", "RKFERR", "RSBERR", //
-    "TVMROOT", "AMORT", //
+    "TVMROOT", "AMORT", "MINIT", "MSOLVR", "MROOT", "MUSER", //
+    "MCALC", "MITM", //
 ];
 const PLOT: &[&str] = &[
     "DRAW",
@@ -361,6 +364,7 @@ impl Menu {
             Menu::Io => "I/O",
             Menu::UnitCat(i) => CATEGORIES[i as usize].0,
             Menu::Tmenu => "CST",
+            Menu::Msolvr => "MSOLVR",
         }
     }
 
@@ -425,6 +429,7 @@ impl Menu {
                 };
             }
             Menu::Tmenu => return labels(calc, &calc.tmenu),
+            Menu::Msolvr => return calc.msolvr_items(),
         };
         fixed.iter().map(|s| s.to_string()).collect()
     }

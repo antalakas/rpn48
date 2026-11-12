@@ -525,7 +525,9 @@ impl App {
             // and divide by it; elsewhere they act unshifted.
             Act::SoftSto(i) | Act::SoftRcl(i) => {
                 let name = self.calc.menu.page(&self.calc, self.calc.page)[i].clone();
-                let solvr = self.calc.menu == Menu::Solvr && !name.is_empty() && name != "EXPR=";
+                let solvr = (self.calc.menu == Menu::Solvr && name != "EXPR="
+                    || self.calc.menu == Menu::Msolvr && name != "ALL")
+                    && !name.is_empty();
                 if solvr {
                     self.solvr_key(&name, Some(matches!(act, Act::SoftSto(_))));
                 } else if let (Menu::UnitCat(_), false) = (self.calc.menu, name.is_empty()) {
@@ -678,6 +680,8 @@ impl App {
             None if self.calc.menu == Menu::Solvr && label != "EXPR=" => {
                 self.solvr_key(&label, None)
             }
+            None if self.calc.menu == Menu::Msolvr && label == "ALL" => self.command("'ALL' MROOT"),
+            None if self.calc.menu == Menu::Msolvr => self.solvr_key(&label, None),
             None => self.command(&label),
         }
     }
