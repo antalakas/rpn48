@@ -254,7 +254,9 @@ const PLOT: &[&str] = &[
 ];
 const IO: &[&str] = &[
     "SEND", "KGET", "RECV", "PR1", "PRST", "PRVAR", //
-    "CR",    //
+    "CR", "PRSTC", "PRLCD", "DELAY", "ARCHIVE", "RESTORE", //
+    "XMIT", "SRECV", "BUFLEN", "BAUD", "PARITY", "CKSM", //
+    "TRANSIO", "XSEND", "XRECV", //
 ];
 const TIME: &[&str] = &[
     "TIME",
