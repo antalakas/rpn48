@@ -2,6 +2,7 @@
 
 use crate::alg::{Expr, parse_alg};
 use crate::calc::{Error, Res};
+use crate::grob::Grob;
 use crate::obj::{Base, Node, Obj, base, from_polar, r12};
 use crate::units::{Units, parse_units};
 
@@ -14,6 +15,7 @@ enum Tok {
     Alg(Expr),
     Bin(u64),
     Unit(f64, Units),
+    Grob(Grob),
     /// A component of a vector written in polar form, [ 1 ∠90 ].
     Angle(f64),
     Tag(String),
@@ -232,7 +234,9 @@ fn tokenize(src: &str) -> Res<Vec<Tok>> {
                     i += 1;
                 }
                 let w: String = cs[start..i].iter().collect();
-                if let Some(x) = parse_num(&w) {
+                if w == "GROB" {
+                    out.push(Tok::Grob(grob(&cs, &mut i)?));
+                } else if let Some(x) = parse_num(&w) {
                     out.push(Tok::Num(x));
                 } else if let Some(x) = w.strip_prefix('∠').and_then(parse_num) {
                     out.push(Tok::Angle(x));
@@ -249,6 +253,32 @@ fn tokenize(src: &str) -> Res<Vec<Tok>> {
         }
     }
     Ok(out)
+}
+
+/// GROB's width, height and pixels, which follow it; the pixels are left
+/// out when there are none.
+fn grob(cs: &[char], i: &mut usize) -> Res<Grob> {
+    let mut word = || {
+        while cs.get(*i).is_some_and(|c| c.is_whitespace()) {
+            *i += 1;
+        }
+        let start = *i;
+        while *i < cs.len() && !cs[*i].is_whitespace() && !"}»]".contains(cs[*i]) {
+            *i += 1;
+        }
+        cs[start..*i].iter().collect::<String>()
+    };
+    let w: usize = word().parse().map_err(|_| Error::Syntax)?;
+    let h: usize = word().parse().map_err(|_| Error::Syntax)?;
+    if w > 4096 || h > 4096 {
+        return Err(Error::Syntax);
+    }
+    let data = if w == 0 || h == 0 {
+        String::new()
+    } else {
+        word()
+    };
+    Grob::from_hex(w, h, &data).ok_or(Error::Syntax)
 }
 
 /// The digits of a binary integer and its optional base suffix.
@@ -479,6 +509,7 @@ impl Parser {
             Tok::Alg(e) => Obj::Alg(e),
             Tok::Bin(n) => Obj::Bin(n),
             Tok::Unit(x, u) => Obj::Unit(x, u),
+            Tok::Grob(g) => Obj::Grob(g),
             Tok::LBrace => self.list()?,
             Tok::LBrack => self.array()?,
             Tok::LProg => Obj::Prog(self.until(&["»"])?.0),

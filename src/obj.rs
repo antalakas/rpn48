@@ -3,6 +3,7 @@
 use std::cell::Cell;
 
 use crate::alg::{Expr, write_expr};
+use crate::grob::Grob;
 use crate::units::{Units, write_units};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,6 +29,8 @@ pub enum Obj {
     Dir(Vec<(String, Obj)>),
     /// A real with units, 9.8_m/s^2.
     Unit(f64, Units),
+    /// A graphics object, GROB 131 64 followed by its pixels in hex.
+    Grob(Grob),
 }
 
 /// The base binary integers are shown in, and read in when typed without
@@ -214,6 +217,15 @@ impl Obj {
         write_obj(&mut out, self, fmt, true);
         out
     }
+
+    /// The object as the stack shows it, which for a grob is its size
+    /// rather than its pixels.
+    pub fn display(&self, fmt: Fmt) -> String {
+        match self {
+            Obj::Grob(g) => format!("Graphic {} × {}", g.w, g.h),
+            o => o.show(fmt),
+        }
+    }
 }
 
 // Names are quoted ('X') on the stack and in programs, but written bare inside
@@ -320,6 +332,9 @@ fn write_obj(out: &mut String, o: &Obj, fmt: Fmt, top: bool) {
             out.push_str(&fmt_real(*x, fmt));
             out.push('_');
             write_units(out, u);
+        }
+        Obj::Grob(g) => {
+            out.push_str(&format!("GROB {} {} {}", g.w, g.h, g.hex()));
         }
     }
 }

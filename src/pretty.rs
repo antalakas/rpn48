@@ -280,6 +280,10 @@ pub fn view(o: &Obj, fmt: Fmt) -> Pic {
     match o {
         Obj::Alg(e) => expr(e, fmt),
         Obj::Tag(t, v) => Pic::beside(&[Pic::text(&format!("{t}: ")), view(v, fmt)]),
+        Obj::Grob(g) => Pic {
+            rows: g.braille().iter().map(|r| r.chars().collect()).collect(),
+            base: 0,
+        },
         o => match cells(o, fmt) {
             Some(c) => grid(&c),
             None => {

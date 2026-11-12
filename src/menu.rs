@@ -40,6 +40,9 @@ pub enum Menu {
     /// EQ LIB: the constants library, the multiple-equation solver and the
     /// utilities.
     Eqlib,
+    /// PRG GROB and PRG PICT: grobs, and PICT with the drawing commands.
+    Grob,
+    Pict,
     /// A category of the UNITS menu, by its place in units::CATEGORIES.
     UnitCat(u8),
     /// A temporary custom menu, from TMENU.
@@ -112,8 +115,17 @@ const STK: &[&str] = &[
     "DEPTH", "CLEAR", "LASTARG", //
 ];
 const PRG: &[&str] = &[
-    "BRCH", "TEST", "TYPE", "LIST", "ERROR", "STK", //
-    "EVAL", "STO", "RCL", "PURGE", "VARS", "MEMORY", //
+    "BRCH", "TEST", "TYPE", "LIST", "GROB", "PICT", //
+    "ERROR", "STK", "EVAL", "STO", "RCL", "PURGE", //
+    "VARS", "MEMORY", //
+];
+const GROB: &[&str] = &[
+    "→GROB", "BLANK", "GOR", "GXOR", "SUB", "REPL", //
+    "→LCD", "LCD→", "SIZE", "ANIMATE", //
+];
+const PICT: &[&str] = &[
+    "PICT", "PDIM", "LINE", "TLINE", "BOX", "ARC", //
+    "PIXON", "PIXOFF", "PIX?", "PVIEW", "PX→C", "C→PX", //
 ];
 const BRCH: &[&str] = &[
     "IF", "THEN", "ELSE", "END", "IFT", "IFTE", //
@@ -298,13 +310,13 @@ fn labels(calc: &Calc, l: &[Obj]) -> Vec<String> {
     l.iter()
         .map(|o| match o {
             Obj::Name(n) | Obj::Str(n) => n.clone(),
-            o => o.show(calc.fmt),
+            o => o.display(calc.fmt),
         })
         .collect()
 }
 
 impl Menu {
-    pub const ALL: [Menu; 31] = [
+    pub const ALL: [Menu; 33] = [
         Menu::Mth,
         Menu::Vectr,
         Menu::Matr,
@@ -336,6 +348,8 @@ impl Menu {
         Menu::Chars,
         Menu::Io,
         Menu::Eqlib,
+        Menu::Grob,
+        Menu::Pict,
     ];
 
     /// The menus on F7–F11.
@@ -374,6 +388,8 @@ impl Menu {
             Menu::Chars => "CHARS",
             Menu::Io => "I/O",
             Menu::Eqlib => "EQ LIB",
+            Menu::Grob => "GROB",
+            Menu::Pict => "PICT",
             Menu::UnitCat(i) => CATEGORIES[i as usize].0,
             Menu::Tmenu => "CST",
             Menu::Msolvr => "MSOLVR",
@@ -381,22 +397,22 @@ impl Menu {
         }
     }
 
-    /// The menu a command of that name switches to. TYPE and TIME are
-    /// commands as well, so their menus are only reached from the keys.
+    /// The menu a command of that name switches to. TYPE, TIME and PICT
+    /// are commands as well, so their menus are only reached from the keys.
     pub fn named(w: &str) -> Option<Menu> {
         Menu::ALL
             .into_iter()
-            .find(|m| m.name() == w && !matches!(m, Menu::Type | Menu::Time))
+            .find(|m| m.name() == w && !matches!(m, Menu::Type | Menu::Time | Menu::Pict))
     }
 
     /// The menu a soft key labelled `label` opens, if it is a submenu here.
-    /// TYPE is the PRG TYPE menu only in PRG; elsewhere it is the command.
+    /// TYPE and PICT are menus only in PRG; elsewhere they are commands.
     pub fn sub(self, label: &str) -> Option<Menu> {
         if self == Menu::Units {
             let i = CATEGORIES.iter().position(|(n, _)| *n == label)?;
             return Some(Menu::UnitCat(i as u8));
         }
-        if label == "TYPE" && self != Menu::Prg {
+        if (label == "TYPE" || label == "PICT") && self != Menu::Prg {
             return None;
         }
         Menu::ALL.into_iter().find(|m| m.name() == label)
@@ -431,6 +447,8 @@ impl Menu {
             Menu::Chars => crate::keys::CHARS,
             Menu::Io => IO,
             Menu::Eqlib => EQLIB,
+            Menu::Grob => GROB,
+            Menu::Pict => PICT,
             Menu::Units => &CATEGORIES.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
             Menu::UnitCat(i) => CATEGORIES[i as usize].1,
             Menu::Solvr => return calc.solvr_items(),

@@ -77,8 +77,9 @@ variable has that name.
   `.1 .2 + .3 ==` is true), complex numbers `(1,2)`, strings, names `'X'`,
   algebraics `'X^2+1'`, binary integers `# FFh`, vectors `[ 1 2 3 ]` and
   matrices `[[ 1 2 ] [ 3 4 ]]`, lists `{ 1 2 }`, programs `« … »`, tagged
-  objects `:A:5`, unit objects `9.8_m/s^2` and directories. Complex
-  numbers and vectors can be typed in polar form, `(1,∠90)` and `[ 2 ∠45 ]`.
+  objects `:A:5`, unit objects `9.8_m/s^2`, directories and graphics
+  objects (see below). Complex numbers and vectors can be typed in polar
+  form, `(1,∠90)` and `[ 2 ∠45 ]`.
 - **Math:** `+ - * / ^ NEG INV SQ √ XROOT ABS SIGN IP FP FLOOR CEIL MOD MIN MAX % %CH %T !`,
   `RND TRNC MANT XPON`, trigonometry and its inverses in DEG/RAD/GRAD,
   hyperbolics, `LN LOG EXP ALOG LNP1 EXPM`, `π e`, complex
@@ -140,6 +141,18 @@ variable has that name.
   value), `SLOPEFIELD`, `PCONTOUR`, `GRIDMAP` (a complex function's image
   of a grid), and in perspective `WIREFRAME YSLICE PARSURFACE`, over the
   view volume in VPAR that `XVOL YVOL ZVOL XXRNG YYRNG EYEPT NUMX NUMY` set.
+- **Graphics objects:** grobs, written `GROB w h data` as on the
+  calculator (rows of pixels in hex, the leftmost pixel in each digit's
+  lowest bit) and shown as `Graphic w × h`. `obj n →GROB` draws an object
+  in the small, medium or large font (`0` draws algebraics as the equation
+  writer does), `#w #h BLANK` makes an empty one, `GOR GXOR REPL` put one
+  grob on another at `{ #x #y }`, `SUB` cuts out part of one, `SIZE` gives
+  its size, `+` ORs two and `NEG` inverts one. `PICT` names the plot's
+  picture in those commands and in `RCL STO PURGE`, so `PICT RCL` is what
+  is drawn as a grob and `grob PICT STO` replaces it; `#w #h PDIM` sets its
+  size. `LCD→` is the display as a grob, `→LCD` shows one, and `ANIMATE`
+  shows several in turn. The PRG menu has GROB and PICT menus. In VIEW,
+  `→LCD` and the plot view a grob is drawn in braille.
 - **Units:** the calculator's unit table (length, area, volume, time,
   speed, mass, force, energy, power, pressure, temperature, electricity,
   angles, light, radiation, viscosity) with SI prefixes (`km`, `MeV`, `μs`).
@@ -243,10 +256,9 @@ Libraries and the equation library's 300 equations: the calculator's
 libraries are ROM and machine-code extensions, which have no equivalent
 here (programs in directories do the same job), so `ATTACH DETACH LIBS
 LIBEVAL SYSEVAL` are not there either. Also the α keyboard (the terminal's
-own keyboard types letters), graphics objects as stack objects (`PICT RCL`,
-`→GROB BLANK GOR GXOR LCD→ →LCD ANIMATE`), the debugger (`DBUG SST`),
-plug-in cards and their ports (`FREE MERGE PVARS PINIT`), and Kermit's
-server and packets (`SERVER XSERV PKT FINISH`), for which files stand in.
+own keyboard types letters), the debugger (`DBUG SST`), plug-in cards
+and their ports (`FREE MERGE PVARS PINIT`), and Kermit's server and
+packets (`SERVER XSERV PKT FINISH`), for which files stand in.
 
 ## License
 

@@ -192,6 +192,8 @@ pub struct Calc {
     /// PICT, shown while `plot` is set.
     pub plot: Option<Plot>,
     pub pict: Vec<Shape>,
+    /// PICT's size in pixels.
+    pub pict_size: (usize, usize),
     /// Objects assigned to keys, by code rc.p.
     pub user_keys: Vec<(f64, Obj)>,
     /// Alarms, soonest first.
@@ -244,6 +246,7 @@ impl Calc {
             frozen: false,
             plot: None,
             pict: vec![],
+            pict_size: crate::grob::LCD,
             user_keys: vec![],
             alarms: vec![],
             io_dir: None,
@@ -650,6 +653,9 @@ impl Calc {
 
     /// Runs `w` if it is a built-in command.
     fn builtin(&mut self, w: &str) -> Option<Res<()>> {
+        if let Some(r) = self.grob_cmd(w) {
+            return Some(r);
+        }
         if let Some((n, f)) = pure_any(w) {
             return Some(self.apply(w, n, f));
         }
@@ -943,7 +949,7 @@ impl Calc {
     pub(crate) fn str_of(&self, o: &Obj) -> String {
         match o {
             Obj::Str(s) => s.clone(),
-            o => o.show(self.fmt),
+            o => o.display(self.fmt),
         }
     }
 
@@ -1223,6 +1229,7 @@ fn pure(w: &str) -> Option<(usize, OpFn)> {
                 Tag(..) => 12.0,
                 Unit(..) => 13.0,
                 Dir(_) => 15.0,
+                Grob(_) => 11.0,
             };
             Ok(vec![Real(t)])
         }),

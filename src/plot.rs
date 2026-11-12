@@ -8,6 +8,7 @@ use std::f64::consts::PI;
 
 use crate::alg::{Expr, to_obj};
 use crate::calc::{Calc, Error, Res};
+use crate::grob::{self, Grob, Mode};
 use crate::obj::{Obj, r12};
 use crate::solve::EQ;
 
@@ -27,6 +28,9 @@ pub enum Shape {
     Bars(Vec<(f64, f64, f64)>),
     /// Text with its lower left corner at a point, from LABEL.
     Text(f64, f64, String),
+    /// Pixels covering the whole of PICT, from storing or drawing a grob
+    /// there; what is drawn after goes over them.
+    Bitmap(Grob),
 }
 
 /// PICT on the display: the ranges it is seen through, and the cursor.
@@ -368,17 +372,102 @@ impl Calc {
     /// A point in user coordinates: (x,y), or { #x #y } in pixels.
     fn point(&self, o: &Obj) -> Res<(f64, f64)> {
         let p = self.ppar();
+        let (w, h) = self.pict_px();
         match o {
             Obj::Complex(x, y) => Ok((*x, *y)),
             Obj::List(l) => match &l[..] {
                 [Obj::Bin(px), Obj::Bin(py)] => Ok((
-                    p.x.0 + *px as f64 * (p.x.1 - p.x.0) / (PIXELS.0 - 1.0),
-                    p.y.1 - *py as f64 * (p.y.1 - p.y.0) / (PIXELS.1 - 1.0),
+                    p.x.0 + *px as f64 * (p.x.1 - p.x.0) / (w - 1.0),
+                    p.y.1 - *py as f64 * (p.y.1 - p.y.0) / (h - 1.0),
                 )),
                 _ => Err(Error::BadValue),
             },
             _ => Err(Error::BadType),
         }
+    }
+
+    fn pict_px(&self) -> (f64, f64) {
+        let (w, h) = self.pict_size;
+        ((w.max(2)) as f64, (h.max(2)) as f64)
+    }
+
+    /// A point in PICT's pixels, fractions and all.
+    fn to_pixel(&self, p: &Ppar, (x, y): (f64, f64)) -> (f64, f64) {
+        let (w, h) = self.pict_px();
+        (
+            (x - p.x.0) / (p.x.1 - p.x.0) * (w - 1.0),
+            (p.y.1 - y) / (p.y.1 - p.y.0) * (h - 1.0),
+        )
+    }
+
+    /// A position as a grob command takes it: { #x #y } in pixels, or a
+    /// point in PICT's coordinates.
+    pub(crate) fn pixel_of(&self, o: &Obj) -> Res<(i64, i64)> {
+        match o {
+            Obj::List(l) => match &l[..] {
+                [Obj::Bin(x), Obj::Bin(y)] => Ok((*x as i64, *y as i64)),
+                _ => Err(Error::BadValue),
+            },
+            Obj::Complex(..) => {
+                let (x, y) = self.to_pixel(&self.ppar(), self.point(o)?);
+                Ok((x.round() as i64, y.round() as i64))
+            }
+            _ => Err(Error::BadType),
+        }
+    }
+
+    /// PICT as a grob: what is in it drawn through PPAR's ranges.
+    pub(crate) fn pict_grob(&self) -> Grob {
+        let (w, h) = self.pict_size;
+        let mut g = Grob::new(w, h);
+        let p = self.ppar();
+        let to = |q: (f64, f64)| self.to_pixel(&p, q);
+        let dot = |g: &mut Grob, (x, y): (f64, f64)| {
+            if x.is_finite() && y.is_finite() {
+                g.set(x.round() as i64, y.round() as i64, true);
+            }
+        };
+        for s in &self.pict {
+            match s {
+                Shape::Curve(c) => {
+                    for seg in c.windows(2) {
+                        g.line(to(seg[0]), to(seg[1]));
+                    }
+                    if let [q] = c[..] {
+                        dot(&mut g, to(q));
+                    }
+                }
+                Shape::Points(ps) => ps.iter().for_each(|q| dot(&mut g, to(*q))),
+                Shape::Bars(bars) => {
+                    for &(a, b, ht) in bars {
+                        for (u, v) in [((a, 0.0), (a, ht)), ((a, ht), (b, ht)), ((b, ht), (b, 0.0))]
+                        {
+                            g.line(to(u), to(v));
+                        }
+                    }
+                }
+                Shape::Text(x, y, t) => {
+                    let (px, py) = to((*x, *y));
+                    if px.is_finite() && py.is_finite() {
+                        let t = grob::text(t, 1);
+                        g.paste(
+                            &t,
+                            px.round() as i64,
+                            py.round() as i64 - t.h as i64 + 1,
+                            Mode::Or,
+                        );
+                    }
+                }
+                Shape::Bitmap(b) => g.paste(b, 0, 0, Mode::Or),
+            }
+        }
+        g
+    }
+
+    /// Makes a grob PICT, at its size.
+    pub(crate) fn set_pict_grob(&mut self, g: Grob) {
+        self.pict_size = (g.w, g.h);
+        self.pict = vec![Shape::Bitmap(g)];
     }
 
     fn show_pict(&mut self) {
@@ -470,7 +559,7 @@ impl Calc {
                             Shape::Bars(b) => {
                                 all.extend(b.into_iter().flat_map(|(a, z, h)| [(a, 0.0), (z, h)]))
                             }
-                            Shape::Text(..) => {}
+                            Shape::Text(..) | Shape::Bitmap(_) => {}
                         }
                     }
                     if all.is_empty() {
@@ -605,6 +694,21 @@ impl Calc {
             }
             // (x1,y1) (x2,y2) PDIM: both ranges at once. PMIN and PMAX set
             // one corner.
+            // #w #h PDIM: PICT's size in pixels, what it holds kept.
+            "PDIM" if matches!(self.stack[..], [.., Obj::Bin(_), Obj::Bin(_)]) => {
+                let n = self.stack.len();
+                let (Obj::Bin(w), Obj::Bin(h)) = (&self.stack[n - 2], &self.stack[n - 1]) else {
+                    unreachable!()
+                };
+                if !(1..=4096).contains(w) || !(1..=4096).contains(h) {
+                    return Some(Err(Error::BadValue));
+                }
+                let mut g = Grob::new(*w as usize, *h as usize);
+                g.paste(&self.pict_grob(), 0, 0, Mode::Repl);
+                self.set_pict_grob(g);
+                self.drop_n(2);
+                Ok(())
+            }
             "PDIM" => self.points(2).and_then(|c| {
                 let [(x0, y0), (x1, y1)] = [c[0], c[1]];
                 if x0 >= x1 || y0 >= y1 {
@@ -736,17 +840,29 @@ impl Calc {
             // them away.
             "PIXOFF" | "PIX?" => self.points(1).map(|p| {
                 let q = self.ppar();
+                let (pw, ph) = self.pict_px();
                 let near = |a: &(f64, f64)| {
-                    (a.0 - p[0].0).abs() <= (q.x.1 - q.x.0) / (2.0 * PIXELS.0)
-                        && (a.1 - p[0].1).abs() <= (q.y.1 - q.y.0) / (2.0 * PIXELS.1)
+                    (a.0 - p[0].0).abs() <= (q.x.1 - q.x.0) / (2.0 * pw)
+                        && (a.1 - p[0].1).abs() <= (q.y.1 - q.y.0) / (2.0 * ph)
                 };
+                let (px, py) = self.to_pixel(&q, p[0]);
+                let (px, py) = (px.round() as i64, py.round() as i64);
                 let mut on = false;
                 for s in &mut self.pict {
-                    if let Shape::Points(pts) = s {
-                        on |= pts.iter().any(near);
-                        if w == "PIXOFF" {
-                            pts.retain(|a| !near(a));
+                    match s {
+                        Shape::Points(pts) => {
+                            on |= pts.iter().any(near);
+                            if w == "PIXOFF" {
+                                pts.retain(|a| !near(a));
+                            }
                         }
+                        Shape::Bitmap(g) => {
+                            on |= g.get(px, py);
+                            if w == "PIXOFF" {
+                                g.set(px, py, false);
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 self.drop_n(1);
@@ -759,9 +875,8 @@ impl Calc {
                 self.stack.push(Obj::Complex(r12(p[0].0), r12(p[0].1)));
             }),
             "C→PX" => self.points(1).map(|p| {
-                let q = self.ppar();
-                let px = ((p[0].0 - q.x.0) / (q.x.1 - q.x.0) * (PIXELS.0 - 1.0)).round();
-                let py = ((q.y.1 - p[0].1) / (q.y.1 - q.y.0) * (PIXELS.1 - 1.0)).round();
+                let (px, py) = self.to_pixel(&self.ppar(), p[0]);
+                let (px, py) = (px.round(), py.round());
                 self.drop_n(1);
                 self.stack.push(Obj::List(vec![
                     Obj::Bin(px.max(0.0) as u64),

@@ -7,6 +7,7 @@ mod binary;
 mod calc;
 mod carray;
 mod consts;
+mod grob;
 mod keypad;
 mod keys;
 mod lists;
@@ -696,7 +697,7 @@ impl App {
                 if self.message.is_none()
                     && let Some(v) = self.calc.global(name)
                 {
-                    self.message = Some(format!("{name}: {}", v.show(self.calc.fmt)));
+                    self.message = Some(format!("{name}: {}", v.display(self.calc.fmt)));
                 }
             }
             Some(true) => {

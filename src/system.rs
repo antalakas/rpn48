@@ -30,6 +30,7 @@ pub fn bytes(o: &Obj) -> f64 {
                 .map(|(n, o)| 6.0 + n.len() as f64 + bytes(o))
                 .sum::<f64>()
         }
+        Obj::Grob(g) => 10.0 + (g.w.div_ceil(8) * g.h) as f64,
         // Programs, algebraics and units as written out.
         o => 5.0 + 2.5 * o.show(Fmt::Std).chars().count() as f64,
     }

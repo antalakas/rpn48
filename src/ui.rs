@@ -10,6 +10,7 @@ use ratatui::widgets::canvas::{Canvas, Line as CLine, Points};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
 use crate::App;
+use crate::grob::Grob;
 use crate::keypad::{self, Act, Shift};
 use crate::obj::{Coord, Fmt, fmt_real, r12};
 use crate::plot::{Plot, Shape};
@@ -151,7 +152,7 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
         let level = (levels - r) as usize;
         let label = format!("{level}:");
         let text = if level <= calc.stack.len() {
-            calc.stack[calc.stack.len() - level].show(calc.fmt)
+            calc.stack[calc.stack.len() - level].display(calc.fmt)
         } else {
             String::new()
         };
@@ -314,6 +315,7 @@ fn draw_plot(f: &mut Frame, p: &Plot, pict: &[Shape], fmt: Fmt, area: Rect) {
         .title_bottom(Line::from(hints).dim());
     let ((x0, x1), (y0, y1)) = (p.x, p.y);
     let cols = area.width.saturating_sub(2).max(1) as f64;
+    let rows = area.height.saturating_sub(2).max(1) as f64;
     let canvas = Canvas::default()
         .block(block)
         .marker(Marker::Braille)
@@ -352,6 +354,10 @@ fn draw_plot(f: &mut Frame, p: &Plot, pict: &[Shape], fmt: Fmt, area: Rect) {
                         }
                     }
                     Shape::Text(x, y, t) => ctx.print(*x, *y, Span::raw(t.clone())),
+                    Shape::Bitmap(g) => ctx.draw(&Points {
+                        coords: &bitmap_points(g, p, cols, rows),
+                        color: Color::White,
+                    }),
                 }
             }
             ctx.layer();
@@ -360,6 +366,34 @@ fn draw_plot(f: &mut Frame, p: &Plot, pict: &[Shape], fmt: Fmt, area: Rect) {
             ctx.draw(&CLine::new(cx, cy - dy, cx, cy + dy, LEFT_SHIFT));
         });
     f.render_widget(canvas, area);
+}
+
+/// A bitmap's pixels as braille dots in user coordinates, each pixel as
+/// many dots as it covers, so that it fills its place at any size.
+fn bitmap_points(g: &Grob, p: &Plot, cols: f64, rows: f64) -> Vec<(f64, f64)> {
+    let ((x0, x1), (y0, y1)) = (p.x, p.y);
+    let (w, h) = (g.w.max(2) as f64, g.h.max(2) as f64);
+    let (pw, ph) = ((x1 - x0) / (w - 1.0), (y1 - y0) / (h - 1.0));
+    let nx = (cols * 2.0 / w).ceil().max(1.0) as usize;
+    let ny = (rows * 4.0 / h).ceil().max(1.0) as usize;
+    let mut out = vec![];
+    for j in 0..g.h {
+        for i in 0..g.w {
+            if !g.get(i as i64, j as i64) {
+                continue;
+            }
+            let (cx, cy) = (x0 + i as f64 * pw, y1 - j as f64 * ph);
+            for a in 0..nx {
+                for b in 0..ny {
+                    out.push((
+                        cx + ((a as f64 + 0.5) / nx as f64 - 0.5) * pw,
+                        cy + ((b as f64 + 0.5) / ny as f64 - 0.5) * ph,
+                    ));
+                }
+            }
+        }
+    }
+    out
 }
 
 // Each key is two lines: its shifted functions, left shift's at the left in
