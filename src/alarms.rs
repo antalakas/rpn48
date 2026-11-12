@@ -3,6 +3,7 @@
 //! message and stays past due until acknowledged; a control alarm runs its
 //! object when it comes due.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::calc::{Calc, Error, Res};
@@ -22,10 +23,24 @@ pub struct Alarm {
     pub due: bool,
 }
 
+/// Seconds the calculator's clock runs ahead of the system's, as set by
+/// →DATE, →TIME and CLKADJ (the bits of an f64).
+static CLOCK: AtomicU64 = AtomicU64::new(0);
+
+pub fn clock_offset() -> f64 {
+    f64::from_bits(CLOCK.load(Ordering::Relaxed))
+}
+
+pub fn set_clock_offset(s: f64) {
+    CLOCK.store(s.to_bits(), Ordering::Relaxed);
+}
+
+/// The calculator's clock, in seconds since 1970.
 pub fn now() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0.0, |d| d.as_secs_f64())
+        + clock_offset()
 }
 
 /// HH.MMSS and MM.DDYYYY as local time, in seconds since 1970.
@@ -61,6 +76,32 @@ fn epoch(date: f64, time: f64) -> Res<f64> {
         return Err(Error::BadValue);
     }
     Ok(t as f64)
+}
+
+/// The day of the week and the date as TSTR writes them: "THU 11/12/26".
+fn day_and_date(t: f64) -> (String, String) {
+    let secs = t as libc::time_t;
+    // SAFETY: localtime_r only writes the tm it is given.
+    let tm = unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&secs, &mut tm);
+        tm
+    };
+    let day = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][tm.tm_wday as usize % 7];
+    let date = format!(
+        "{:02}/{:02}/{:02}",
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        (tm.tm_year + 1900) % 100
+    );
+    (day.into(), date)
+}
+
+fn real_arg(o: &Obj) -> Res<f64> {
+    match o {
+        Obj::Real(x) => Ok(*x),
+        _ => Err(Error::BadType),
+    }
 }
 
 /// Seconds since 1970 as the date MM.DDYYYY and time HH.MMSS.
@@ -212,6 +253,66 @@ impl Calc {
                 self.stack.push(Obj::Real(n as f64));
                 Ok(())
             }),
+            // Setting the clock moves the calculator's clock, not the system's.
+            "→DATE" | "→TIME" | "CLKADJ" => self.need(1).and_then(|_| {
+                let x = real_arg(self.peek(1))?;
+                let t = now();
+                let (date, time) = date_time(t);
+                let target = match w {
+                    "→DATE" => epoch(x, time)?,
+                    "→TIME" => epoch(date, x)?,
+                    _ => t + x / TICKS,
+                };
+                set_clock_offset(clock_offset() + target - t);
+                self.stack.pop();
+                Ok(())
+            }),
+            // date days DATE+: the date that many days later.
+            "DATE+" => self.need(2).and_then(|_| {
+                let (d, n) = (real_arg(self.peek(2))?, real_arg(self.peek(1))?);
+                // From noon, so a change of daylight saving time does not
+                // move it across midnight.
+                let r = date_time(epoch(d, 12.0)? + n.trunc() * 86400.0).0;
+                self.stack.truncate(self.stack.len() - 2);
+                self.stack.push(Obj::Real(r));
+                Ok(())
+            }),
+            // date1 date2 DDAYS: the days from date1 to date2.
+            "DDAYS" => self.need(2).and_then(|_| {
+                let (a, b) = (real_arg(self.peek(2))?, real_arg(self.peek(1))?);
+                let days = ((epoch(b, 12.0)? - epoch(a, 12.0)?) / 86400.0).round();
+                self.stack.truncate(self.stack.len() - 2);
+                self.stack.push(Obj::Real(days));
+                Ok(())
+            }),
+            // date time TSTR: "THU 11/12/26 09:30:00A", or a 24-hour time
+            // with flag -41 set.
+            "TSTR" => self.need(2).and_then(|_| {
+                let (d, t) = (real_arg(self.peek(2))?, real_arg(self.peek(1))?);
+                let at = epoch(d, t)?;
+                let (day, date) = day_and_date(at);
+                let secs = at as i64;
+                // SAFETY: localtime_r only writes the tm it is given.
+                let tm = unsafe {
+                    let mut tm: libc::tm = std::mem::zeroed();
+                    libc::localtime_r(&(secs as libc::time_t), &mut tm);
+                    tm
+                };
+                let clock24 = self.flags[1] & (1 << 40) != 0;
+                let time = if clock24 {
+                    format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
+                } else {
+                    let h = match tm.tm_hour % 12 {
+                        0 => 12,
+                        h => h,
+                    };
+                    let ap = if tm.tm_hour < 12 { 'A' } else { 'P' };
+                    format!("{h:02}:{:02}:{:02}{ap}", tm.tm_min, tm.tm_sec)
+                };
+                self.stack.truncate(self.stack.len() - 2);
+                self.stack.push(Obj::Str(format!("{day} {date} {time}")));
+                Ok(())
+            }),
             "ACK" | "ACKALL" => {
                 let t = now();
                 let mut first = true;
@@ -251,5 +352,37 @@ mod tests {
         c.exec_line("1 DELALARM").unwrap();
         assert!(c.alarms.is_empty());
         assert!(now() > 1.7e9);
+    }
+
+    fn run(src: &str) -> Vec<String> {
+        let mut c = Calc::new();
+        c.exec_line(src).unwrap();
+        c.stack.iter().map(|o| o.show(c.fmt)).collect()
+    }
+
+    #[test]
+    fn dates() {
+        assert_eq!(
+            run("12.312026 1 DATE+ 2.282028 1 DATE+"),
+            ["1.012027", "2.292028"]
+        );
+        assert_eq!(run("1.012026 11.122026 DDAYS"), ["315"]);
+        assert_eq!(
+            run("11.122026 21.3005 TSTR"),
+            ["\"THU 11/12/26 09:30:05P\""]
+        );
+        assert_eq!(
+            run("-41 SF 11.122026 21.3005 TSTR"),
+            ["\"THU 11/12/26 21:30:05\""]
+        );
+    }
+
+    #[test]
+    fn setting_the_clock() {
+        let mut c = Calc::new();
+        c.exec_line("2.032031 →DATE DATE").unwrap();
+        let date = c.stack[0].show(c.fmt);
+        super::set_clock_offset(0.0);
+        assert_eq!(date, "2.032031");
     }
 }

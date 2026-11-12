@@ -1,7 +1,7 @@
 //! Unit objects such as 9.8_m/s^2: a real and the units it is measured in,
 //! with the calculator's unit table, prefixes and conversions.
 
-use crate::calc::{Calc, Error, OpFn, Res, div0, op, real, real_of};
+use crate::calc::{Calc, Error, OpFn, Res, div0, one, op, real, real_of};
 use crate::obj::{Obj, r12};
 
 /// Units as written: each name, prefix included, with its exponent.
@@ -540,6 +540,30 @@ pub(crate) fn pure(w: &str) -> Option<(usize, OpFn)> {
             Ok(vec![unit(x, base_units(&d))?])
         }),
         "UVAL" => op(1, |_, a| Ok(vec![Obj::Real(unit_parts(&a[0])?.0)])),
+        // T ΔT TINC: a temperature raised by a difference of temperatures,
+        // which is a size, not a reading on a scale: 100_°C 9_°F TINC is 105_°C.
+        "TINC" => op(2, |_, a| match (&a[0], &a[1]) {
+            (Obj::Real(x), Obj::Real(d)) => one(real(x + d)),
+            _ => {
+                let ((x, u), (d, v)) = (unit_parts(&a[0])?, unit_parts(&a[1])?);
+                let ((uf, ud), (vf, vd)) = (factor(&u)?, factor(&v)?);
+                if temperature(&u).is_none() || !same_dims(&ud, &vd) {
+                    return Err(Error::InconsistentUnits);
+                }
+                Ok(vec![unit(x + d * vf / uf, u)?])
+            }
+        }),
+        // T1 T0 TDELTA: how far T1 is above T0, in T1's degrees.
+        "TDELTA" => op(2, |_, a| match (&a[0], &a[1]) {
+            (Obj::Real(x), Obj::Real(y)) => one(real(x - y)),
+            _ => {
+                let ((x, u), (y, v)) = (unit_parts(&a[0])?, unit_parts(&a[1])?);
+                if temperature(&u).is_none() {
+                    return Err(Error::InconsistentUnits);
+                }
+                Ok(vec![unit(x - convert(y, &v, &u)?, u)?])
+            }
+        }),
         // Level 2 rewritten with level 1's units as a factor: 1_W 1_J UFACT
         // gives 1_J/s.
         "UFACT" => op(2, |_, a| {
@@ -573,6 +597,10 @@ mod tests {
         assert_eq!(run("1_kg*m^2/(s^2*K)"), ["1_kg*m^2/(s^2*K)"]);
         assert_eq!(run("1_ft 1_m CONVERT"), [".3048_m"]);
         assert_eq!(run("100_°C 1_°F CONVERT"), ["212_°F"]);
+        assert_eq!(
+            run("100_°C 9_°F TINC 20_°C 32_°F TDELTA"),
+            ["105_°C", "20_°C"]
+        );
         assert_eq!(run("1_km 1_mi CONVERT"), [".621371192237_mi"]);
         assert_eq!(run("1_m 1_ft +"), ["1.3048_m"]);
         assert_eq!(run("3_m 2_s /"), ["1.5_m/s"]);

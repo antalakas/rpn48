@@ -1,8 +1,6 @@
 //! The rest of the commands: rounding and hours-minutes-seconds, probability,
 //! tags, flags, errors, directories, variable arithmetic and the clock.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use crate::calc::{Calc, Error, OpFn, Res, one, op, pure_any, real, real_of, real2, truth};
 use crate::obj::{Obj, r12};
 
@@ -127,17 +125,15 @@ pub fn pure(w: &str) -> Option<(usize, OpFn)> {
 
 /// Seconds since 1970 and the local time's broken-down fields.
 fn now() -> (f64, libc::tm) {
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = t.as_secs() as libc::time_t;
+    let t = crate::alarms::now();
+    let secs = t as libc::time_t;
     // SAFETY: localtime_r only writes the tm it is given.
     let tm = unsafe {
         let mut tm: libc::tm = std::mem::zeroed();
         libc::localtime_r(&secs, &mut tm);
         tm
     };
-    (t.as_secs_f64(), tm)
+    (t, tm)
 }
 
 impl Calc {

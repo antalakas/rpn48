@@ -56,6 +56,7 @@ pub fn save(calc: &Calc, path: &Path) -> io::Result<()> {
                 .flat_map(|a| [Obj::Real(a.at), a.action.clone(), Obj::Real(a.repeat)])
                 .collect(),
         ),
+        Obj::Real(crate::alarms::clock_offset()),
     ];
     // Written in rectangular form, which reads back whatever the modes.
     let shown = coord();
@@ -155,6 +156,9 @@ pub fn load(calc: &mut Calc, path: &Path) -> Result<(), String> {
                     _ => None,
                 })
                 .collect();
+        }
+        if let [_, _, _, Obj::Real(clock), ..] = rest {
+            crate::alarms::set_clock_offset(*clock);
         }
         calc.set_base(match base.as_str() {
             "HEX" => Base::Hex,

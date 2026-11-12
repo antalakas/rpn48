@@ -233,8 +233,14 @@ const TIME: &[&str] = &[
     "RCLALARM",
     "DELALARM",
     "FINDALARM",
-    "ACK",    //
-    "ACKALL", //
+    "ACK", //
+    "ACKALL",
+    "→DATE",
+    "→TIME",
+    "CLKADJ",
+    "DATE+",
+    "DDAYS", //
+    "TSTR",  //
 ];
 
 /// The labels of a custom menu's keys.
