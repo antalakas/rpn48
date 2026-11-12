@@ -84,6 +84,7 @@ fn draw_display(f: &mut Frame, app: &App, area: Rect) {
     let halt = [
         (calc.halted > 0, "HALT  "),
         (calc.user_mode(), "USER  "),
+        (app.alpha != crate::Alpha::Off, "α  "),
         (app.entry, "PRG  "),
         (calc.alarms.iter().any(|a| a.due), "ALRM  "),
     ]
@@ -449,8 +450,23 @@ fn draw_keys(f: &mut Frame, app: &App, area: Rect) {
                 dim(Style::new().add_modifier(Modifier::REVERSED), act),
             ),
         };
-        let face = Span::styled(center(&fit(face, w), w), style);
-        f.render_widget(Paragraph::new(vec![shifted, Line::from(face)]), cell);
+        // The letter α types, at the right; bright while α is on.
+        let face = match keypad::letter(key) {
+            Some(c) => {
+                let lit = if app.alpha == crate::Alpha::Off {
+                    Style::new().dim()
+                } else {
+                    Style::new().fg(Color::Yellow).bold()
+                };
+                let w = w.saturating_sub(1);
+                Line::from(vec![
+                    Span::styled(center(&fit(face, w), w), style),
+                    Span::styled(c.to_string(), lit),
+                ])
+            }
+            None => Line::from(Span::styled(center(&fit(face, w), w), style)),
+        };
+        f.render_widget(Paragraph::new(vec![shifted, face]), cell);
     }
 }
 

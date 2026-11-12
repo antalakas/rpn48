@@ -3,7 +3,8 @@
 //! Each key has its own function and the two shifted ones printed above it:
 //! left shift (◀, purple on the calculator) on the left, right shift (▶,
 //! green) on the right. Functions rpn48 lacks are listed as `Unsupported` so
-//! the keyboard still shows the whole layout.
+//! the keyboard still shows the whole layout. The keys of the top five rows
+//! also carry the letters that α types.
 
 use ratatui::layout::Rect;
 
@@ -59,6 +60,8 @@ pub enum Act {
     /// The matrix writer, for a new array.
     Matrix,
     Shift(Shift),
+    /// α: letters for the next key, or until pressed again if pressed twice.
+    Alpha,
     Cancel,
     Off,
 }
@@ -157,12 +160,7 @@ pub static ROWS: [&[Key]; 9] = [
         key("←", Backspace, ("DROP", Cmd("DROP")), NONE),
     ],
     &[
-        key(
-            "α",
-            Unsupported,
-            ("USER", UserToggle),
-            ("ENTRY", EntryToggle),
-        ),
+        key("α", Alpha, ("USER", UserToggle), ("ENTRY", EntryToggle)),
         digit("7", ("SOLVE", Menu(Menu::Solvr))),
         digit("8", ("PLOT", Menu(Menu::Plot))),
         digit("9", ("SYMBOLIC", Menu(Menu::Symbolic))),
@@ -266,6 +264,27 @@ pub fn code(key: &Key) -> u32 {
         }
     }
     0
+}
+
+/// The letter α types with a key: A to X along the top four rows, then Y
+/// on +/- and Z on EEX.
+pub fn letter(key: &Key) -> Option<char> {
+    let code = code(key);
+    let (r, c) = (code / 10, code % 10);
+    let i = match (r, c) {
+        (1..=4, 1..=6) => (r - 1) * 6 + c - 1,
+        (5, 2) => 24,
+        (5, 3) => 25,
+        _ => return None,
+    };
+    char::from_u32('A' as u32 + i)
+}
+
+/// What ▶ with a letter types in α mode: Greek letters, arrows and a few
+/// symbols, rpn48's own choice.
+pub fn special(c: char) -> char {
+    let i = (c as u8).wrapping_sub(b'A') as usize;
+    "αβΔδεφθλμρ↑στωΩ←↓→ΣΠ∞√∫×≤≥".chars().nth(i).unwrap_or(c)
 }
 
 /// The first key that `f` picks out.
