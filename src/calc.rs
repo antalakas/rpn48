@@ -661,6 +661,7 @@ impl Calc {
             .or_else(|| self.pause_cmd(w))
             .or_else(|| self.solve_cmd(w))
             .or_else(|| self.plot_cmd(w))
+            .or_else(|| self.plot3d_cmd(w))
             .or_else(|| self.keys_cmd(w))
             .or_else(|| self.alarm_cmd(w))
             .or_else(|| self.io_cmd(w))

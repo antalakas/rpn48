@@ -25,6 +25,8 @@ pub enum Shape {
     Points(Curve),
     /// Bars from the x axis: left edge, right edge, height.
     Bars(Vec<(f64, f64, f64)>),
+    /// Text with its lower left corner at a point, from LABEL.
+    Text(f64, f64, String),
 }
 
 /// PICT on the display: the ranges it is seen through, and the cursor.
@@ -43,7 +45,11 @@ struct Ppar {
     /// The independent variable's own range, if it has one.
     trange: Option<(f64, f64)>,
     res: f64,
+    /// Where the axes cross, (x,y), or { (x,y) atick "x label" "y label" }.
+    axes: Obj,
     kind: String,
+    /// The dependent variable: a name, or { name min max }.
+    depend: Obj,
 }
 
 impl Default for Ppar {
@@ -54,7 +60,9 @@ impl Default for Ppar {
             indep: "X".into(),
             trange: None,
             res: 0.0,
+            axes: Obj::Complex(0.0, 0.0),
             kind: "FUNCTION".into(),
+            depend: Obj::Name("Y".into()),
         }
     }
 }
@@ -67,6 +75,26 @@ const KINDS: &[&str] = &[
     "BAR",
     "HISTOGRAM",
     "TRUTH",
+    "CONIC",
+    "DIFFEQ",
+    "SLOPEFIELD",
+    "WIREFRAME",
+    "YSLICE",
+    "PCONTOUR",
+    "GRIDMAP",
+    "PARSURFACE",
+];
+
+/// The types plot3d draws.
+const MORE_KINDS: &[&str] = &[
+    "CONIC",
+    "DIFFEQ",
+    "SLOPEFIELD",
+    "WIREFRAME",
+    "YSLICE",
+    "PCONTOUR",
+    "GRIDMAP",
+    "PARSURFACE",
 ];
 
 // Failing to compute a point leaves a gap in the plot; stopping stops.
@@ -75,6 +103,66 @@ fn gap<T>(r: Res<T>) -> Res<Option<T>> {
         Ok(v) => Ok(Some(v)),
         Err(e @ (Error::Interrupted | Error::Killed)) => Err(e),
         Err(_) => Ok(None),
+    }
+}
+
+impl Ppar {
+    /// The dependent variable's name.
+    fn depend_name(&self) -> String {
+        match &self.depend {
+            Obj::Name(n) => n.clone(),
+            Obj::List(l) => match l.first() {
+                Some(Obj::Name(n)) => n.clone(),
+                _ => "Y".into(),
+            },
+            _ => "Y".into(),
+        }
+    }
+
+    /// Where the axes cross, and the spacing of their ticks (ten pixels'
+    /// worth unless ATICK said otherwise).
+    fn axes(&self) -> ((f64, f64), (f64, f64)) {
+        let (origin, tick) = match &self.axes {
+            Obj::Complex(x, y) => ((*x, *y), None),
+            Obj::List(l) => (
+                match l.first() {
+                    Some(Obj::Complex(x, y)) => (*x, *y),
+                    _ => (0.0, 0.0),
+                },
+                l.get(1),
+            ),
+            _ => ((0.0, 0.0), None),
+        };
+        let px = (
+            (self.x.1 - self.x.0) / (PIXELS.0 - 1.0),
+            (self.y.1 - self.y.0) / (PIXELS.1 - 1.0),
+        );
+        let tick = match tick {
+            Some(Obj::Real(t)) => (*t, *t),
+            Some(Obj::Bin(n)) => (*n as f64 * px.0, *n as f64 * px.1),
+            Some(Obj::List(l)) => match &l[..] {
+                [Obj::Real(a), Obj::Real(b)] => (*a, *b),
+                [Obj::Bin(a), Obj::Bin(b)] => (*a as f64 * px.0, *b as f64 * px.1),
+                _ => (10.0 * px.0, 10.0 * px.1),
+            },
+            _ => (10.0 * px.0, 10.0 * px.1),
+        };
+        (origin, tick)
+    }
+
+    /// The axes' labels, given in AXES or the variables' names.
+    fn labels(&self) -> (String, String) {
+        let given = |i: usize| match &self.axes {
+            Obj::List(l) => match l.get(i) {
+                Some(Obj::Str(s)) => Some(s.clone()),
+                _ => None,
+            },
+            _ => None,
+        };
+        (
+            given(2).unwrap_or_else(|| self.indep.clone()),
+            given(3).unwrap_or_else(|| self.depend_name()),
+        )
     }
 }
 
@@ -98,8 +186,14 @@ impl Calc {
             if let Some(Obj::Real(r)) = l.get(3) {
                 p.res = *r;
             }
+            if let Some(a @ (Obj::Complex(..) | Obj::List(_))) = l.get(4) {
+                p.axes = a.clone();
+            }
             if let Some(Obj::Name(n)) = l.get(5) {
                 p.kind = n.clone();
+            }
+            if let Some(d @ (Obj::Name(_) | Obj::List(_))) = l.get(6) {
+                p.depend = d.clone();
             }
         }
         p
@@ -115,9 +209,9 @@ impl Calc {
             Obj::Complex(p.x.1, p.y.1),
             indep,
             Obj::Real(p.res),
-            Obj::Complex(0.0, 0.0),
+            p.axes.clone(),
             Obj::Name(p.kind.clone()),
-            Obj::Name("Y".into()),
+            p.depend.clone(),
         ];
         self.store(PPAR.into(), Obj::List(l))
     }
@@ -227,6 +321,10 @@ impl Calc {
                     }
                 }
                 out.push(Shape::Points(pts));
+            }
+            kind if MORE_KINDS.contains(&kind) => {
+                let depend = p.depend_name();
+                return self.trace_more(kind, (&x, &depend), p.x, p.y, p.trange);
             }
             kind => {
                 let full_turn = self.rad_to_angle(2.0 * PI);
@@ -360,7 +458,8 @@ impl Calc {
                 self.set_ppar(&p)
             }
             // Ranges that fit what is plotted: y for functions and bars, both
-            // for the other types.
+            // for the other types, none for the 3D ones.
+            "AUTO" if MORE_KINDS.contains(&self.ppar().kind.as_str()) => Ok(()),
             "AUTO" => {
                 let mut p = self.ppar();
                 self.trace(&p).and_then(|shapes| {
@@ -371,6 +470,7 @@ impl Calc {
                             Shape::Bars(b) => {
                                 all.extend(b.into_iter().flat_map(|(a, z, h)| [(a, 0.0), (z, h)]))
                             }
+                            Shape::Text(..) => {}
                         }
                     }
                     if all.is_empty() {
@@ -415,6 +515,173 @@ impl Calc {
             }
             "ERASE" => {
                 self.pict.clear();
+                Ok(())
+            }
+            // (x,y) AXES, or { (x,y) atick "x label" "y label" }.
+            "AXES" => self.need(1).and_then(|_| {
+                let a = self.peek(1).clone();
+                if !matches!(a, Obj::Complex(..) | Obj::List(_)) {
+                    return Err(Error::BadType);
+                }
+                let mut p = self.ppar();
+                p.axes = a;
+                self.set_ppar(&p)?;
+                self.drop_n(1);
+                Ok(())
+            }),
+            // x, { x y } or # pixels ATICK: the spacing of the axes' ticks.
+            "ATICK" => self.need(1).and_then(|_| {
+                let t = self.peek(1).clone();
+                if !matches!(t, Obj::Real(_) | Obj::Bin(_) | Obj::List(_)) {
+                    return Err(Error::BadType);
+                }
+                let mut p = self.ppar();
+                let origin = match &p.axes {
+                    Obj::List(l) => l.first().cloned().unwrap_or(Obj::Complex(0.0, 0.0)),
+                    o => o.clone(),
+                };
+                let mut l = vec![origin, t];
+                if let Obj::List(old) = &p.axes {
+                    l.extend(old.iter().skip(2).cloned());
+                }
+                p.axes = Obj::List(l);
+                self.set_ppar(&p)?;
+                self.drop_n(1);
+                Ok(())
+            }),
+            "DEPND" => self.need(1).and_then(|_| {
+                let d = self.peek(1).clone();
+                match &d {
+                    Obj::Name(_) => {}
+                    Obj::List(l) if matches!(&l[..], [Obj::Name(_), Obj::Real(a), Obj::Real(b)] if a < b) => {}
+                    Obj::List(_) => return Err(Error::BadValue),
+                    _ => return Err(Error::BadType),
+                }
+                let mut p = self.ppar();
+                p.depend = d;
+                self.set_ppar(&p)?;
+                self.drop_n(1);
+                Ok(())
+            }),
+            // (x,y) CENTR: the ranges moved to center on the point.
+            "CENTR" => self.points(1).and_then(|c| {
+                let mut p = self.ppar();
+                let (w, h) = ((p.x.1 - p.x.0) / 2.0, (p.y.1 - p.y.0) / 2.0);
+                let (cx, cy) = c[0];
+                (p.x, p.y) = ((r12(cx - w), r12(cx + w)), (r12(cy - h), r12(cy + h)));
+                self.set_ppar(&p)?;
+                self.drop_n(1);
+                Ok(())
+            }),
+            // xscale yscale SCALE: units per ten pixels, about the center.
+            "SCALE" | "SCALEW" | "SCALEH" => {
+                let n = if w == "SCALE" { 2 } else { 1 };
+                self.need(n).and_then(|_| {
+                    let k: Vec<f64> = self.stack[self.stack.len() - n..]
+                        .iter()
+                        .map(|o| match o {
+                            Obj::Real(x) if *x > 0.0 => Ok(*x),
+                            Obj::Real(_) => Err(Error::BadValue),
+                            _ => Err(Error::BadType),
+                        })
+                        .collect::<Res<_>>()?;
+                    let mut p = self.ppar();
+                    let about = |(a, b): (f64, f64), w: f64| {
+                        let c = (a + b) / 2.0;
+                        (r12(c - w / 2.0), r12(c + w / 2.0))
+                    };
+                    match w {
+                        "SCALE" => {
+                            p.x = about(p.x, k[0] * (PIXELS.0 - 1.0) / 10.0);
+                            p.y = about(p.y, k[1] * (PIXELS.1 - 1.0) / 10.0);
+                        }
+                        "SCALEW" => p.x = about(p.x, (p.x.1 - p.x.0) * k[0]),
+                        _ => p.y = about(p.y, (p.y.1 - p.y.0) * k[0]),
+                    }
+                    self.set_ppar(&p)?;
+                    self.drop_n(n);
+                    Ok(())
+                })
+            }
+            // (x1,y1) (x2,y2) PDIM: both ranges at once. PMIN and PMAX set
+            // one corner.
+            "PDIM" => self.points(2).and_then(|c| {
+                let [(x0, y0), (x1, y1)] = [c[0], c[1]];
+                if x0 >= x1 || y0 >= y1 {
+                    return Err(Error::BadValue);
+                }
+                let mut p = self.ppar();
+                (p.x, p.y) = ((x0, x1), (y0, y1));
+                self.set_ppar(&p)?;
+                self.drop_n(2);
+                Ok(())
+            }),
+            "PMIN" | "PMAX" => self.points(1).and_then(|c| {
+                let mut p = self.ppar();
+                let (x, y) = c[0];
+                if w == "PMIN" {
+                    (p.x.0, p.y.0) = (x, y);
+                } else {
+                    (p.x.1, p.y.1) = (x, y);
+                }
+                if p.x.0 >= p.x.1 || p.y.0 >= p.y.1 {
+                    return Err(Error::BadValue);
+                }
+                self.set_ppar(&p)?;
+                self.drop_n(1);
+                Ok(())
+            }),
+            // The axes, with their ticks, drawn into PICT.
+            "DRAX" => {
+                let p = self.ppar();
+                let ((ox, oy), (tx, ty)) = p.axes();
+                self.pict.push(Shape::Curve(vec![(p.x.0, oy), (p.x.1, oy)]));
+                self.pict.push(Shape::Curve(vec![(ox, p.y.0), (ox, p.y.1)]));
+                let (hx, hy) = ((p.y.1 - p.y.0) / (PIXELS.1 - 1.0), (p.x.1 - p.x.0) / (PIXELS.0 - 1.0));
+                let ticks = |o: f64, t: f64, (lo, hi): (f64, f64)| {
+                    let first = o + ((lo - o) / t).ceil() * t;
+                    (0..)
+                        .map(move |i| first + i as f64 * t)
+                        .take_while(move |&v| v <= hi)
+                        .take(200)
+                };
+                if tx > 0.0 {
+                    for v in ticks(ox, tx, p.x) {
+                        self.pict.push(Shape::Curve(vec![(v, oy - hx), (v, oy + hx)]));
+                    }
+                }
+                if ty > 0.0 {
+                    for v in ticks(oy, ty, p.y) {
+                        self.pict.push(Shape::Curve(vec![(ox - hy, v), (ox + hy, v)]));
+                    }
+                }
+                Ok(())
+            }
+            // The axes' names and ranges written into PICT.
+            "LABEL" => {
+                let p = self.ppar();
+                let ((ox, oy), _) = p.axes();
+                let (lx, ly) = p.labels();
+                let num = |x: f64| Obj::Real(r12(x)).show(self.fmt);
+                let texts = [
+                    (p.x.1 - (p.x.1 - p.x.0) * 0.08, oy, lx),
+                    (ox, p.y.1 - (p.y.1 - p.y.0) * 0.06, ly),
+                    (p.x.0, oy, num(p.x.0)),
+                    (p.x.1 - (p.x.1 - p.x.0) * 0.12, oy - (p.y.1 - p.y.0) * 0.08, num(p.x.1)),
+                    (ox, p.y.0, num(p.y.0)),
+                ];
+                for (x, y, t) in texts {
+                    self.pict.push(Shape::Text(x, y, t));
+                }
+                Ok(())
+            }
+            // Back to the stack, as from PICT.
+            "TEXT" => {
+                self.plot = None;
+                Ok(())
+            }
+            "PICTURE" => {
+                self.show_pict();
                 Ok(())
             }
             // PVIEW takes a point (or { }) as the calculator does; both show
@@ -557,6 +824,40 @@ mod tests {
         assert!(matches!(&c.pict[..], [Shape::Bars(b)] if b[2].2 == 2.0));
         c.exec_line("ERASE 'X^2+Y^2<4' STEQ TRUTH DRAW").unwrap();
         assert!(matches!(&c.pict[..], [Shape::Points(p)] if !p.is_empty()));
+    }
+
+    #[test]
+    fn plot_parameters() {
+        let ppar = |src: &str| {
+            let mut c = Calc::new();
+            c.exec_line(&format!("{src} PPAR")).unwrap();
+            c.stack.last().unwrap().show(c.fmt)
+        };
+        assert_eq!(
+            ppar("(1,2) CENTR"),
+            "{ (-5.5,-1.15) (7.5,5.15) X 0 (0,0) FUNCTION Y }"
+        );
+        assert_eq!(
+            ppar("2 1 SCALE"),
+            "{ (-13,-3.1) (13,3.2) X 0 (0,0) FUNCTION Y }"
+        );
+        assert_eq!(
+            ppar("(0,0) (4,2) PDIM 2 SCALEH"),
+            "{ (0,-1) (4,3) X 0 (0,0) FUNCTION Y }"
+        );
+        assert_eq!(
+            ppar("(1,1) AXES 2 ATICK 'T' DEPND"),
+            "{ (-6.5,-3.1) (6.5,3.2) X 0 { (1,1) 2 } FUNCTION T }"
+        );
+        let mut c = Calc::new();
+        c.exec_line("1 ATICK DRAX LABEL").unwrap();
+        // Two axes, 13 ticks across and 7 up, and five labels.
+        assert_eq!(c.pict.len(), 2 + 13 + 7 + 5);
+        assert!(
+            c.pict
+                .iter()
+                .any(|s| matches!(s, Shape::Text(_, _, t) if t == "X"))
+        );
     }
 
     #[test]

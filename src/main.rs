@@ -20,6 +20,7 @@ mod pattern;
 mod pause;
 mod persist;
 mod plot;
+mod plot3d;
 mod pretty;
 mod rearrange;
 mod solve;

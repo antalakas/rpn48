@@ -212,6 +212,36 @@ const PLOT: &[&str] = &[
     "BAR",
     "HISTOGRAM", //
     "TRUTH",
+    "CONIC",
+    "DIFFEQ",
+    "SLOPEFIELD",
+    "WIREFRAME",
+    "YSLICE", //
+    "PCONTOUR",
+    "GRIDMAP",
+    "PARSURFACE",
+    "DEPND",
+    "AXES",
+    "ATICK", //
+    "CENTR",
+    "SCALE",
+    "SCALEW",
+    "SCALEH",
+    "PDIM",
+    "PMIN", //
+    "PMAX",
+    "DRAX",
+    "LABEL",
+    "TEXT",
+    "PICTURE",
+    "XVOL", //
+    "YVOL",
+    "ZVOL",
+    "XXRNG",
+    "YYRNG",
+    "EYEPT",
+    "NUMX", //
+    "NUMY",
     "LINE",
     "TLINE",
     "BOX",
