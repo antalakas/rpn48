@@ -186,6 +186,7 @@ const SYMBOLIC: &[&str] = &[
     "∂", "∫", "Σ", "ROOT", "TAYLR", "|", //
     "COLCT", "→Q", "EQ→", "EVAL", "→NUM", "=", //
     "ISOL", "QUAD", "EXPAN", "STEQ", "RCEQ", "SOLVR", //
+    "↑MATCH", "↓MATCH", "SHOW", "APPLY", "QUOTE", "→Qπ", //
 ];
 const PLOT: &[&str] = &[
     "DRAW",

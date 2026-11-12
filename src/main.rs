@@ -14,6 +14,7 @@ mod menu;
 mod more;
 mod obj;
 mod parse;
+mod pattern;
 mod pause;
 mod persist;
 mod plot;

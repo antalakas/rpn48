@@ -665,6 +665,7 @@ impl Calc {
             .or_else(|| self.alarm_cmd(w))
             .or_else(|| self.io_cmd(w))
             .or_else(|| self.system_cmd(w))
+            .or_else(|| self.pattern_cmd(w))
         {
             return Some(r);
         }
