@@ -61,7 +61,7 @@ in the bottom-left column), then a key, for the shifted function: ◀ SIN is
 ASIN, ▶ EVAL is UNDO, ◀ - types `« »`. The top row of keys is the soft keys,
 labelled with the current menu; in the VAR menu, ◀ and ▶ on a soft key
 store into and recall that variable. The few functions rpn48 doesn't have
-(libraries, EQ LIB, the α keyboard) are dimmed.
+(libraries, the α keyboard) are dimmed.
 
 The keyboard takes the mouse, so to select text on the screen, hold Shift
 while dragging (in most terminals).
@@ -99,21 +99,47 @@ variable has that name.
   `COLCT` collects like terms (`'X*X+X+X+1'` becomes `'X^2+2*X+1'`).
 - **Arrays:** `+ - *` and `/` (which solves `B A /` for A·X = B),
   `DET INV TRN DOT CROSS ABS IDN CON RDM RNRM CNRM TRACE →ARRY ARRY→ V→ →V2 →V3`,
-  and `GET PUT SIZE`, on real and complex arrays (`[ (1,2) 3 ]`; `R→C` and
-  `C→R` build and split them, `CONJ RE IM` take them apart).
+  and `GET PUT GETI PUTI SIZE`, on real and complex arrays (`[ (1,2) 3 ]`; `R→C` and
+  `C→R` build and split them, `CONJ RE IM` take them apart). On real
+  matrices, rows and columns: `→COL COL→ COL+ COL- CSWP →ROW ROW→ ROW+ ROW-
+  RSWP RCI RCIJ →DIAG DIAG→ RANM`; the factorizations `LU QR LQ SVD SVL
+  SCHUR`, eigenvalues and eigenvectors `EGVL EGV` (complex where they are),
+  `RANK RREF COND SNRM SRAD`, least squares `LSQ` and residuals `RSD`.
+  Polynomials as coefficient vectors, highest power first: `PROOT PCOEF
+  PEVAL` (`[ 1 -5 6 ] PROOT` is `[ 2 3 ]`). `FFT IFFT` on vectors and
+  matrices whose sides are powers of 2.
 - **Solver:** `STEQ` stores an equation in `EQ`, and the SOLVR menu (◀ 7)
   has a key for each of its variables: a value then the key stores it, ◀
   (or Shift-F*n*) solves for it, ▶ (or Alt-F*n*) recalls it, and `EXPR=`
-  shows both sides.
+  shows both sides. With a list of equations in `EQ`, `MINIT` sets up the
+  multiple-equation solver and `MSOLVR` its menu, which works the same way;
+  `MROOT` solves for a variable (or `'ALL'`) through whichever equations
+  have one unknown left, `MUSER` and `MCALC` mark variables as given or to
+  be found, and `MITM` sets the menu's title and keys.
+- **Differential equations:** `{ 'X' 'Y' 'f' } tol xfinal RKF` takes the
+  variables X and Y from their values to x = xfinal along y' = f(x,y) (y
+  may be a vector), by Runge-Kutta-Fehlberg; `RKFSTEP` takes one step and
+  `RKFERR` estimates a step's error. `RRK RRKSTEP RSBERR` take the
+  stiff solver's arguments, with ∂f/∂x and ∂f/∂y, but step the same way.
+- **Money:** `TVMROOT` solves for one of `N I%YR PV PMT FV` from the
+  others (`PYR` payments a year, 12 if unset; flag -14 for payments at the
+  start of each period), and `n AMORT` gives the principal, interest and
+  balance after n payments.
 - **Plotting:** `DRAW` plots `EQ` (or a list of expressions) as a
   `FUNCTION`, in `POLAR` or `PARAMETRIC` form, or as a `TRUTH` plot of
   where a comparison holds, or `ΣDAT` as a `SCATTER`, `BAR` or `HISTOGRAM`
   plot, over the ranges in `PPAR` set by `XRNG YRNG INDEP RES AUTO`. What
   is drawn stays in PICT, where `LINE TLINE BOX ARC PIXON PIXOFF PIX?` add
-  to it, `ERASE` clears it, `PVIEW` and `GRAPH` show it, and `PX→C C→PX`
+  to it, `DRAX` and `LABEL` draw axes and their labels, `ERASE` clears it,
+  `PVIEW GRAPH PICTURE` show it, `TEXT` goes back to the stack, and `PX→C C→PX`
   convert between pixels and coordinates. The arrows move a cursor and
   ENTER puts its coordinates on the stack. The PLOT menu is ◀ 8, and ◀ with the ◀ arrow
-  shows PICT.
+  shows PICT. `AXES ATICK DEPND CENTR SCALE SCALEW SCALEH PDIM PMIN PMAX`
+  set the rest of PPAR. The other plot types: `CONIC` (where an equation
+  in X and Y holds), `DIFFEQ` (y' = EQ from the dependent variable's
+  value), `SLOPEFIELD`, `PCONTOUR`, `GRIDMAP` (a complex function's image
+  of a grid), and in perspective `WIREFRAME YSLICE PARSURFACE`, over the
+  view volume in VPAR that `XVOL YVOL ZVOL XXRNG YYRNG EYEPT NUMX NUMY` set.
 - **Units:** the calculator's unit table (length, area, volume, time,
   speed, mass, force, energy, power, pressure, temperature, electricity,
   angles, light, radiation, viscosity) with SI prefixes (`km`, `MeV`, `μs`).
@@ -146,9 +172,16 @@ variable has that name.
   `CRDIR PGDIR UPDIR HOME PATH`; names are looked up in the current
   directory and then those above it. The VAR menu runs or recalls variables
   and enters directories, and CST shows the list in the variable `CST`.
-- **Statistics:** on the matrix `ΣDAT`, `Σ+ Σ- CLΣ NΣ TOT MEAN SDEV VAR MAXΣ MINΣ`,
-  and on its `XCOL`/`YCOL` columns `LR PREDY PREDX CORR COV ΣX ΣY ΣX2 ΣY2 ΣXY`.
-- **Time and alarms:** `TIME DATE TICKS`, and alarms with `STOALARM
+- **Statistics:** on the matrix `ΣDAT`, `Σ+ Σ- CLΣ STOΣ RCLΣ NΣ TOT MEAN SDEV VAR PSDEV PVAR MAXΣ MINΣ BINS`,
+  and on its `XCOL`/`YCOL` columns (`COLΣ` sets both) `LR PREDY PREDX CORR COV PCOV ΣX ΣY ΣX2 ΣY2 ΣXY`.
+  `LINFIT LOGFIT EXPFIT PWRFIT` choose the curve `LR` fits, `BESTFIT` the
+  one that fits best, and `ΣLINE` gives it as an expression. `SCATRPLOT
+  BARPLOT HISTPLOT` draw the data, `SCLΣ` scales the plot to it. The
+  distributions: upper-tail probabilities `UTPN UTPC UTPT UTPF` and the
+  normal density `NDIST`.
+- **Time and alarms:** `TIME DATE TICKS`, `→TIME →DATE CLKADJ` to set
+  rpn48's clock (it runs ahead of or behind the system's, which is left
+  alone), `DATE+ DDAYS TSTR`, and alarms with `STOALARM
   RCLALARM DELALARM FINDALARM ACK ACKALL`: `{ 11.122026 9.3 "Call" }
   STOALARM` shows "Call" at 9:30 on 12 November 2026 and lights ALRM until
   acknowledged, and an alarm with a program runs it. A repeat interval, in
@@ -163,9 +196,28 @@ variable has that name.
   width, ▼ starts a new row); VIEW (◀ ▼) draws level 1 out, or edits an
   array in the matrix writer.
 - **I/O:** with files for cable and paper, in `$XDG_DATA_HOME/rpn48`:
-  `SEND` writes variables to `transfer/`, `KGET` reads them back by name
-  and `RECV` reads everything there; `PR1 PRST PRVAR CR` append to
-  `printer`.
+  `SEND` (and `XSEND XPUT`) writes variables to `transfer/`, `KGET` (and
+  `XRECV XGET`) reads them back by name and `RECV` reads everything there;
+  `ARCHIVE` backs up HOME there and `RESTORE` puts it back; `XMIT SRECV
+  BUFLEN` use a file there as a looped-back serial line, and `BAUD PARITY
+  CKSM TRANSIO` set IOPAR. `PR1 PRST PRSTC PRLCD PRVAR CR` append to `printer`.
+- **Constants and EQ LIB:** `'c' CONST` gives a constant of the GX's
+  constants library with its units (without, with flag -61 set), and
+  `CONLIB` is a menu of them. EQ LIB (▶ 3) has it with the
+  multiple-equation solver and the utilities `ZFACTOR DARCY F0λ SIDENS
+  TDELTA TINC`. `MINR MAXR` are the smallest and largest reals rpn48 holds
+  (an f64's, not the calculator's 1E-499 and 9.99999999999E499).
+- **Patterns and the rest of the symbolics:** `↑MATCH ↓MATCH` rewrite an
+  expression by a pattern with `&`-wildcards and an optional condition
+  (`'SIN(A)^2+COS(A)^2' { 'SIN(&X)^2+COS(&X)^2' 1 } ↓MATCH` is `1`),
+  `APPLY QUOTE SHOW →Qπ`.
+- **Dialogs and editing:** `CHOOSE` and `INFORM` (with `NOVAL` for empty
+  fields) ask through the prompt line, a choice by number and a field at a
+  time; `VISIT` edits a variable.
+- **Memory and menus:** `CLVAR CLUSR ORDER VTYPE MEM BYTES NEWOB NDUPN
+  SNEG SINV SCONJ`, the flags as binary integers `RCLF STOF`, `MENU TMENU
+  RCLMENU` (CST is menu 1, VAR 2 and MTH 3; the rest are numbered in
+  rpn48's own order), `VERSION`, and `LAST` for `LASTARG`.
 - **Display:** `STD`, `n FIX`, `n SCI`, `n ENG`, and `RECT CYLIN SPHERE`
   (▶ MTH toggles polar), which show complex numbers as `(r,∠θ)` and 2- and
   3-element vectors as `[ r ∠θ ]`, `[ r ∠θ z ]` or `[ r ∠θ ∠φ ]`.
@@ -187,11 +239,14 @@ For example, a recursive factorial:
 
 ## Not there
 
-Libraries and EQ LIB: the calculator's libraries are ROM and machine-code
-extensions, which have no equivalent here (programs in directories do the
-same job). Also the α keyboard (the terminal's own keyboard types
-letters), graphics objects as stack objects (`PICT RCL`, `→GROB`), and
-Kermit and infrared, for which files stand in.
+Libraries and the equation library's 300 equations: the calculator's
+libraries are ROM and machine-code extensions, which have no equivalent
+here (programs in directories do the same job), so `ATTACH DETACH LIBS
+LIBEVAL SYSEVAL` are not there either. Also the α keyboard (the terminal's
+own keyboard types letters), graphics objects as stack objects (`PICT RCL`,
+`→GROB BLANK GOR GXOR LCD→ →LCD ANIMATE`), the debugger (`DBUG SST`),
+plug-in cards and their ports (`FREE MERGE PVARS PINIT`), and Kermit's
+server and packets (`SERVER XSERV PKT FINISH`), for which files stand in.
 
 ## License
 
