@@ -6,21 +6,27 @@ mod array;
 mod binary;
 mod calc;
 mod carray;
+mod consts;
 mod keypad;
 mod keys;
 mod lists;
+mod matrix;
 mod menu;
 mod more;
+mod numeric;
 mod obj;
 mod parse;
+mod pattern;
 mod pause;
 mod persist;
 mod plot;
+mod plot3d;
 mod pretty;
 mod rearrange;
 mod solve;
 mod stat;
 mod symbolic;
+mod system;
 mod transfer;
 mod ui;
 mod units;
@@ -519,7 +525,9 @@ impl App {
             // and divide by it; elsewhere they act unshifted.
             Act::SoftSto(i) | Act::SoftRcl(i) => {
                 let name = self.calc.menu.page(&self.calc, self.calc.page)[i].clone();
-                let solvr = self.calc.menu == Menu::Solvr && !name.is_empty() && name != "EXPR=";
+                let solvr = (self.calc.menu == Menu::Solvr && name != "EXPR="
+                    || self.calc.menu == Menu::Msolvr && name != "ALL")
+                    && !name.is_empty();
                 if solvr {
                     self.solvr_key(&name, Some(matches!(act, Act::SoftSto(_))));
                 } else if let (Menu::UnitCat(_), false) = (self.calc.menu, name.is_empty()) {
@@ -672,6 +680,9 @@ impl App {
             None if self.calc.menu == Menu::Solvr && label != "EXPR=" => {
                 self.solvr_key(&label, None)
             }
+            None if self.calc.menu == Menu::Msolvr && label == "ALL" => self.command("'ALL' MROOT"),
+            None if self.calc.menu == Menu::Msolvr => self.solvr_key(&label, None),
+            None if self.calc.menu == Menu::Conlib => self.command(&format!("'{label}' CONST")),
             None => self.command(&label),
         }
     }

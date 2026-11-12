@@ -56,6 +56,7 @@ pub fn save(calc: &Calc, path: &Path) -> io::Result<()> {
                 .flat_map(|a| [Obj::Real(a.at), a.action.clone(), Obj::Real(a.repeat)])
                 .collect(),
         ),
+        Obj::Real(crate::alarms::clock_offset()),
     ];
     // Written in rectangular form, which reads back whatever the modes.
     let shown = coord();
@@ -156,6 +157,9 @@ pub fn load(calc: &mut Calc, path: &Path) -> Result<(), String> {
                 })
                 .collect();
         }
+        if let [_, _, _, Obj::Real(clock), ..] = rest {
+            crate::alarms::set_clock_offset(*clock);
+        }
         calc.set_base(match base.as_str() {
             "HEX" => Base::Hex,
             "OCT" => Base::Oct,
@@ -205,5 +209,22 @@ mod tests {
         assert_eq!(d.coord, crate::obj::Coord::Cylin);
         assert_eq!(d.user_keys, c.user_keys);
         assert_eq!(d.alarms, c.alarms);
+    }
+
+    #[test]
+    fn round_trip_of_this_rounds_state() {
+        let dir = std::env::temp_dir().join(format!("rpn48-test2-{}", std::process::id()));
+        let path = dir.join("memory");
+        let mut c = Calc::new();
+        c.exec_line("{ 'A=W*H' 'P=2*(W+H)' } STEQ MINIT { W } MUSER 0 2 XVOL (1,1) AXES 2 ATICK 'T' DEPND EXPFIT")
+            .unwrap();
+        c.exec_line("2_mol^-1 'U' STO 'NA' CONST [[1 2][3 4]] EGV 2400 BAUD 3 SF 1 2 3 3 ROW→")
+            .unwrap();
+        save(&c, &path).unwrap();
+        let mut d = Calc::new();
+        load(&mut d, &path).unwrap();
+        fs::remove_dir_all(dir).unwrap();
+        assert_eq!(d.stack, c.stack);
+        assert_eq!(d.vars, c.vars);
     }
 }

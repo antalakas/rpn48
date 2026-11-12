@@ -10,7 +10,7 @@ use crate::obj::{Base, Coord, Fmt, Node, Obj, r12, set_base, set_coord};
 use crate::parse::parse;
 use crate::pause::PauseFn;
 use crate::plot::{Plot, Shape};
-use crate::{array, binary, carray, lists, more, units};
+use crate::{array, binary, carray, consts, lists, matrix, more, stat, units};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -175,6 +175,8 @@ pub struct Calc {
     pub flags: [u64; 2],
     pub menu: Menu,
     pub page: usize,
+    /// The labels of the menu TMENU shows.
+    pub tmenu: Vec<Obj>,
     /// Polled now and then while a program runs; true stops it.
     pub interrupt: Option<Box<dyn FnMut() -> bool>>,
     /// Stops a program for HALT, PROMPT, INPUT and the like.
@@ -233,6 +235,7 @@ impl Calc {
             flags: [0; 2],
             menu: Menu::Mth,
             page: 0,
+            tmenu: vec![],
             interrupt: None,
             pause: None,
             halted: 0,
@@ -293,7 +296,6 @@ impl Calc {
         set_base(b);
     }
 
-    #[cfg(test)]
     pub fn exec_line(&mut self, src: &str) -> Res<()> {
         self.exec_nodes(&parse(src)?)
     }
@@ -659,9 +661,14 @@ impl Calc {
             .or_else(|| self.pause_cmd(w))
             .or_else(|| self.solve_cmd(w))
             .or_else(|| self.plot_cmd(w))
+            .or_else(|| self.plot3d_cmd(w))
             .or_else(|| self.keys_cmd(w))
             .or_else(|| self.alarm_cmd(w))
             .or_else(|| self.io_cmd(w))
+            .or_else(|| self.system_cmd(w))
+            .or_else(|| self.pattern_cmd(w))
+            .or_else(|| self.numeric_cmd(w))
+            .or_else(|| self.consts_cmd(w))
         {
             return Some(r);
         }
@@ -1033,7 +1040,10 @@ pub(crate) fn pure_any(w: &str) -> Option<(usize, OpFn)> {
         .or_else(|| array::pure(w))
         .or_else(|| binary::pure(w))
         .or_else(|| lists::pure(w))
+        .or_else(|| matrix::pure(w))
         .or_else(|| more::pure(w))
+        .or_else(|| stat::pure(w))
+        .or_else(|| consts::pure(w))
         .or_else(|| units::pure(w))
 }
 

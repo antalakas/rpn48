@@ -105,6 +105,10 @@ pub fn to_nodes(e: &Expr, out: &mut Vec<Node>) {
             to_nodes(b, out);
             out.push(Node::Word(op_word(*c)));
         }
+        // QUOTE(x) is x, unevaluated.
+        Fn(f, args) if f == "QUOTE" && args.len() == 1 => {
+            out.push(Node::Push(to_obj(args[0].clone())))
+        }
         Fn(f, args) => {
             for a in args {
                 to_nodes(a, out);

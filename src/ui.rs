@@ -351,6 +351,7 @@ fn draw_plot(f: &mut Frame, p: &Plot, pict: &[Shape], fmt: Fmt, area: Rect) {
                             }
                         }
                     }
+                    Shape::Text(x, y, t) => ctx.print(*x, *y, Span::raw(t.clone())),
                 }
             }
             ctx.layer();

@@ -1,8 +1,6 @@
 //! The rest of the commands: rounding and hours-minutes-seconds, probability,
 //! tags, flags, errors, directories, variable arithmetic and the clock.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use crate::calc::{Calc, Error, OpFn, Res, one, op, pure_any, real, real_of, real2, truth};
 use crate::obj::{Obj, r12};
 
@@ -127,17 +125,15 @@ pub fn pure(w: &str) -> Option<(usize, OpFn)> {
 
 /// Seconds since 1970 and the local time's broken-down fields.
 fn now() -> (f64, libc::tm) {
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = t.as_secs() as libc::time_t;
+    let t = crate::alarms::now();
+    let secs = t as libc::time_t;
     // SAFETY: localtime_r only writes the tm it is given.
     let tm = unsafe {
         let mut tm: libc::tm = std::mem::zeroed();
         libc::localtime_r(&secs, &mut tm);
         tm
     };
-    (t.as_secs_f64(), tm)
+    (t, tm)
 }
 
 impl Calc {
@@ -169,8 +165,27 @@ impl Calc {
         Ok(())
     }
 
+    /// The next random number in [0, 1), to 12 digits.
+    pub(crate) fn random(&mut self) -> f64 {
+        if self.seed == 0 {
+            self.seed = now().0.to_bits() | 1;
+        }
+        // xorshift64*, taking 12 digits of the result.
+        let mut x = self.seed;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.seed = x;
+        let r = (x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 11) as f64 / (1u64 << 53) as f64;
+        (r * 1e12).floor() / 1e12
+    }
+
     pub(crate) fn more_cmd(&mut self, w: &str) -> Option<Res<()>> {
-        if let Some(r) = self.binary_cmd(w).or_else(|| self.array_cmd(w)) {
+        if let Some(r) = self
+            .binary_cmd(w)
+            .or_else(|| self.array_cmd(w))
+            .or_else(|| self.matrix_cmd(w))
+        {
             return Some(r);
         }
         Some(match w {
@@ -284,17 +299,8 @@ impl Calc {
                 Ok(())
             }),
             "RAND" => {
-                if self.seed == 0 {
-                    self.seed = now().0.to_bits() | 1;
-                }
-                // xorshift64*, taking 12 digits of the result.
-                let mut x = self.seed;
-                x ^= x >> 12;
-                x ^= x << 25;
-                x ^= x >> 27;
-                self.seed = x;
-                let r = (x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 11) as f64 / (1u64 << 53) as f64;
-                self.stack.push(Obj::Real((r * 1e12).floor() / 1e12));
+                let r = self.random();
+                self.stack.push(Obj::Real(r));
                 Ok(())
             }
             "RDZ" => self.need(1).and_then(|_| {

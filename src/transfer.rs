@@ -80,6 +80,44 @@ impl Calc {
         self.store(name.into(), o)
     }
 
+    /// The file that stands for the serial line, which XMIT writes and
+    /// SRECV reads, like a cable looped back.
+    fn serial_file(&self) -> Res<PathBuf> {
+        self.transfer_dir().map(|d| d.join(".serial"))
+    }
+
+    /// :IO:name or 'name': the name of an archive in the transfer directory.
+    fn archive_name(&self) -> Res<String> {
+        match self.peek(1) {
+            Obj::Name(n) => Ok(file_name(n)?.into()),
+            Obj::Tag(_, o) => match &**o {
+                Obj::Name(n) => Ok(file_name(n)?.into()),
+                _ => Err(Error::BadType),
+            },
+            _ => Err(Error::BadType),
+        }
+    }
+
+    /// IOPAR: { baud parity receive-pacing transmit-pacing checksum
+    /// translate }, which BAUD, PARITY, CKSM and TRANSIO set.
+    fn set_iopar(&mut self, i: usize, lo: f64, hi: f64) -> Res<()> {
+        self.need(1)?;
+        let Obj::Real(x) = *self.peek(1) else {
+            return Err(Error::BadType);
+        };
+        if x < lo || x > hi || x.fract() != 0.0 {
+            return Err(Error::BadValue);
+        }
+        let mut par = match self.global("IOPAR") {
+            Some(Obj::List(l)) if l.len() == 6 => l.clone(),
+            _ => [9600.0, 0.0, 0.0, 0.0, 3.0, 1.0].map(Obj::Real).to_vec(),
+        };
+        par[i] = Obj::Real(x);
+        self.store("IOPAR".into(), Obj::List(par))?;
+        self.stack.pop();
+        Ok(())
+    }
+
     fn print(&self, text: &str) -> Res<()> {
         let path = self.print_file()?;
         if let Some(d) = path.parent() {
@@ -95,7 +133,7 @@ impl Calc {
 
     pub(crate) fn io_cmd(&mut self, w: &str) -> Option<Res<()>> {
         Some(match w {
-            "SEND" => self.need(1).and_then(|_| {
+            "SEND" | "XSEND" | "XPUT" => self.need(1).and_then(|_| {
                 let dir = self.transfer_dir()?;
                 fs::create_dir_all(&dir).map_err(io_err)?;
                 for n in self.names_arg()? {
@@ -105,7 +143,7 @@ impl Calc {
                 self.stack.pop();
                 Ok(())
             }),
-            "KGET" => self.need(1).and_then(|_| {
+            "KGET" | "XRECV" | "XGET" => self.need(1).and_then(|_| {
                 for n in self.names_arg()? {
                     self.receive(&n)?;
                 }
@@ -140,6 +178,84 @@ impl Calc {
                 Ok(())
             }),
             "CR" => self.print(""),
+            // The stack one line to a level, levels past the first line cut short.
+            "PRSTC" | "PRLCD" => (1..=self.stack.len()).rev().try_for_each(|i| {
+                let line: String = format!("{i}: {}", self.peek(i).show(self.fmt))
+                    .chars()
+                    .take(if w == "PRSTC" { 22 } else { 1000 })
+                    .collect();
+                self.print(&line)
+            }),
+            // The printer's line delay, and the old printer's character set,
+            // mean nothing to a file.
+            "DELAY" => self.need(1).map(|_| {
+                self.stack.pop();
+            }),
+            "OLDPRT" | "OPENIO" | "CLOSEIO" | "SBRK" => Ok(()),
+            "BAUD" => self.set_iopar(0, 1200.0, 9600.0),
+            "PARITY" => self.set_iopar(1, -4.0, 4.0),
+            "CKSM" => self.set_iopar(4, 1.0, 3.0),
+            "TRANSIO" => self.set_iopar(5, 0.0, 3.0),
+            // "text" XMIT: sent down the line, and 1.
+            "XMIT" => self.need(1).and_then(|_| {
+                let text = self.str_of(self.peek(1));
+                let path = self.serial_file()?;
+                fs::create_dir_all(path.parent().unwrap()).map_err(io_err)?;
+                let mut f = fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .map_err(io_err)?;
+                f.write_all(text.as_bytes()).map_err(io_err)?;
+                self.stack.pop();
+                self.stack.push(Obj::Real(1.0));
+                Ok(())
+            }),
+            // n SRECV: up to n characters from the line, and 1.
+            "SRECV" => self.need(1).and_then(|_| {
+                let Obj::Real(n) = *self.peek(1) else {
+                    return Err(Error::BadType);
+                };
+                let path = self.serial_file()?;
+                let text = fs::read_to_string(&path).unwrap_or_default();
+                let got: String = text.chars().take(n.max(0.0) as usize).collect();
+                let rest = &text[got.len()..];
+                if !text.is_empty() {
+                    fs::write(&path, rest).map_err(io_err)?;
+                }
+                self.stack.pop();
+                self.stack.push(Obj::Str(got));
+                self.stack.push(Obj::Real(1.0));
+                Ok(())
+            }),
+            "BUFLEN" => self.serial_file().map(|path| {
+                let n = fs::read_to_string(path).map_or(0, |t| t.chars().count());
+                self.stack.push(Obj::Real(n as f64));
+                self.stack.push(Obj::Real(1.0));
+            }),
+            // 'name' ARCHIVE backs up HOME to the transfer directory, and
+            // RESTORE puts such a backup back in its place.
+            "ARCHIVE" => self.need(1).and_then(|_| {
+                let name = self.archive_name()?;
+                let dir = self.transfer_dir()?;
+                fs::create_dir_all(&dir).map_err(io_err)?;
+                let home = Obj::Dir(self.vars.clone());
+                fs::write(dir.join(name), source(&home) + "\n").map_err(io_err)?;
+                self.stack.pop();
+                Ok(())
+            }),
+            "RESTORE" => self.need(1).and_then(|_| {
+                let path = self.transfer_dir()?.join(self.archive_name()?);
+                let text = fs::read_to_string(path).map_err(io_err)?;
+                let nodes = parse(&text)?;
+                let [Node::Push(Obj::Dir(vars))] = nodes.as_slice() else {
+                    return Err(Error::User("Invalid Backup".into()));
+                };
+                self.vars = vars.clone();
+                self.path.clear();
+                self.stack.pop();
+                Ok(())
+            }),
             _ => return None,
         })
     }
@@ -165,5 +281,22 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
         assert_eq!(printed, "Z: (1,2)\n2: 42\n1: (1,2)\n\n");
         assert!(c.exec_line("'Q' KGET").is_err());
+    }
+
+    #[test]
+    fn archive_and_serial() {
+        let dir = std::env::temp_dir().join(format!("rpn48-arc-{}", std::process::id()));
+        let mut c = Calc::new();
+        c.io_dir = Some(dir.clone());
+        c.exec_line("1 'A' STO 'D' CRDIR :IO:BAK ARCHIVE 'A' PURGE 2 'B' STO 'BAK' RESTORE VARS")
+            .unwrap();
+        c.exec_line("\"hello\" XMIT DROP BUFLEN DROP 3 SRECV DROP 9 SRECV DROP 2400 BAUD IOPAR")
+            .unwrap();
+        fs::remove_dir_all(dir).unwrap();
+        let s: Vec<String> = c.stack.iter().map(|o| o.show(c.fmt)).collect();
+        assert_eq!(
+            s,
+            ["{ D A }", "5", "\"hel\"", "\"lo\"", "{ 2400 0 0 0 3 1 }"]
+        );
     }
 }

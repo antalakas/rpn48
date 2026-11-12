@@ -37,13 +37,24 @@ pub enum Menu {
     Plot,
     Chars,
     Io,
+    /// EQ LIB: the constants library, the multiple-equation solver and the
+    /// utilities.
+    Eqlib,
     /// A category of the UNITS menu, by its place in units::CATEGORIES.
     UnitCat(u8),
+    /// A temporary custom menu, from TMENU.
+    Tmenu,
+    /// The multiple-equation solver's variables.
+    Msolvr,
+    /// The constants library: a key for each constant.
+    Conlib,
 }
 
 const MTH: &[&str] = &[
     "VECTR", "MATR", "LIST", "HYP", "REAL", "BASE", //
     "PROB", "CMPL", "TRIG", "LOGS", "π", "e", //
+    "MINR", "MAXR", "CONLIB", "CONST", "TINC", "TDELTA", "ZFACTOR", //
+    "DARCY", "F0λ", "SIDENS", //
 ];
 const VECTR: &[&str] = &[
     "ABS", "DOT", "CROSS", "V→", "→V2", "→V3", //
@@ -52,7 +63,13 @@ const VECTR: &[&str] = &[
 const MATR: &[&str] = &[
     "→ARRY", "ARRY→", "IDN", "CON", "TRN", "DET", //
     "INV", "RDM", "RNRM", "CNRM", "TRACE", "SIZE", //
-    "ABS", "SQ", "GET", "PUT", //
+    "ABS", "SQ", "GET", "PUT", "GETI", "PUTI", //
+    "RANM", "→DIAG", "DIAG→", "RANK", "RREF", "COND", //
+    "SNRM", "SRAD", "LU", "QR", "LQ", "SVD", //
+    "SVL", "SCHUR", "EGV", "EGVL", "LSQ", "RSD", //
+    "→COL", "COL→", "COL+", "COL-", "CSWP", "RCI", //
+    "→ROW", "ROW→", "ROW+", "ROW-", "RSWP", "RCIJ", //
+    "PCOEF", "PROOT", "PEVAL", "FFT", "IFFT", //
 ];
 const LIST: &[&str] = &[
     "DOLIST", "DOSUBS", "NSUB", "ENDSUB", "STREAM", "SEQ", //
@@ -76,7 +93,10 @@ const BASE: &[&str] = &[
     "SL", "SR", "SLB", "SRB", "ASR", "NEG", //
     "RL", "RR", "RLB", "RRB", //
 ];
-const PROB: &[&str] = &["COMB", "PERM", "!", "RAND", "RDZ"];
+const PROB: &[&str] = &[
+    "COMB", "PERM", "!", "RAND", "RDZ", "UTPN", //
+    "UTPC", "UTPT", "UTPF", "NDIST", //
+];
 const CMPL: &[&str] = &[
     "R→C", "C→R", "RE", "IM", "CONJ", "ARG", //
     "ABS", "SIGN", "NEG", //
@@ -121,18 +141,64 @@ const MEMORY: &[&str] = &[
     "ASN", "STOKEYS", "RCLKEYS", "DELKEYS", //
     "PATH", "CRDIR", "PGDIR", "HOME", "UPDIR", "VARS", //
     "PURGE", "STO+", "STO-", "STO*", "STO/", "INCR", //
-    "DECR", //
+    "DECR", "CLVAR", "ORDER", "MEM", "BYTES", "NEWOB", //
+    "VTYPE", "SNEG", "SINV", "SCONJ", "RCLF", "STOF", //
+    "MENU", "TMENU", "RCLMENU", "NDUPN", "VERSION", //
 ];
 const STAT: &[&str] = &[
-    "Σ+", "Σ-", "CLΣ", "NΣ", "TOT", "MEAN", //
-    "SDEV", "VAR", "MAXΣ", "MINΣ", "XCOL", "YCOL", //
-    "LR", "PREDY", "PREDX", "CORR", "COV", "ΣX", //
-    "ΣY", "ΣX2", "ΣY2", "ΣXY", //
+    "Σ+",
+    "Σ-",
+    "CLΣ",
+    "NΣ",
+    "TOT",
+    "MEAN", //
+    "SDEV",
+    "VAR",
+    "MAXΣ",
+    "MINΣ",
+    "XCOL",
+    "YCOL", //
+    "LR",
+    "PREDY",
+    "PREDX",
+    "CORR",
+    "COV",
+    "ΣX", //
+    "ΣY",
+    "ΣX2",
+    "ΣY2",
+    "ΣXY",
+    "COLΣ",
+    "STOΣ", //
+    "RCLΣ",
+    "LINFIT",
+    "LOGFIT",
+    "EXPFIT",
+    "PWRFIT",
+    "BESTFIT", //
+    "ΣLINE",
+    "PVAR",
+    "PSDEV",
+    "PCOV",
+    "BINS",
+    "SCLΣ", //
+    "SCATRPLOT",
+    "BARPLOT",
+    "HISTPLOT",
+    "UTPN",
+    "UTPC",
+    "UTPT", //
+    "UTPF",
+    "NDIST", //
 ];
 const SYMBOLIC: &[&str] = &[
     "∂", "∫", "Σ", "ROOT", "TAYLR", "|", //
     "COLCT", "→Q", "EQ→", "EVAL", "→NUM", "=", //
     "ISOL", "QUAD", "EXPAN", "STEQ", "RCEQ", "SOLVR", //
+    "↑MATCH", "↓MATCH", "SHOW", "APPLY", "QUOTE", "→Qπ", //
+    "RKF", "RRK", "RKFSTEP", "RRKSTEP", "RKFERR", "RSBERR", //
+    "TVMROOT", "AMORT", "MINIT", "MSOLVR", "MROOT", "MUSER", //
+    "MCALC", "MITM", //
 ];
 const PLOT: &[&str] = &[
     "DRAW",
@@ -154,6 +220,36 @@ const PLOT: &[&str] = &[
     "BAR",
     "HISTOGRAM", //
     "TRUTH",
+    "CONIC",
+    "DIFFEQ",
+    "SLOPEFIELD",
+    "WIREFRAME",
+    "YSLICE", //
+    "PCONTOUR",
+    "GRIDMAP",
+    "PARSURFACE",
+    "DEPND",
+    "AXES",
+    "ATICK", //
+    "CENTR",
+    "SCALE",
+    "SCALEW",
+    "SCALEH",
+    "PDIM",
+    "PMIN", //
+    "PMAX",
+    "DRAX",
+    "LABEL",
+    "TEXT",
+    "PICTURE",
+    "XVOL", //
+    "YVOL",
+    "ZVOL",
+    "XXRNG",
+    "YYRNG",
+    "EYEPT",
+    "NUMX", //
+    "NUMY",
     "LINE",
     "TLINE",
     "BOX",
@@ -164,9 +260,16 @@ const PLOT: &[&str] = &[
     "PX→C",
     "C→PX", //
 ];
+const EQLIB: &[&str] = &[
+    "CONLIB", "MINIT", "MSOLVR", "MROOT", "MUSER", "MCALC", //
+    "MITM", "ZFACTOR", "DARCY", "F0λ", "SIDENS", "TDELTA", //
+    "TINC",   //
+];
 const IO: &[&str] = &[
     "SEND", "KGET", "RECV", "PR1", "PRST", "PRVAR", //
-    "CR",    //
+    "CR", "PRSTC", "PRLCD", "DELAY", "ARCHIVE", "RESTORE", //
+    "XMIT", "SRECV", "BUFLEN", "BAUD", "PARITY", "CKSM", //
+    "TRANSIO", "XSEND", "XRECV", //
 ];
 const TIME: &[&str] = &[
     "TIME",
@@ -180,12 +283,28 @@ const TIME: &[&str] = &[
     "RCLALARM",
     "DELALARM",
     "FINDALARM",
-    "ACK",    //
-    "ACKALL", //
+    "ACK", //
+    "ACKALL",
+    "→DATE",
+    "→TIME",
+    "CLKADJ",
+    "DATE+",
+    "DDAYS", //
+    "TSTR",  //
 ];
 
+/// The labels of a custom menu's keys.
+fn labels(calc: &Calc, l: &[Obj]) -> Vec<String> {
+    l.iter()
+        .map(|o| match o {
+            Obj::Name(n) | Obj::Str(n) => n.clone(),
+            o => o.show(calc.fmt),
+        })
+        .collect()
+}
+
 impl Menu {
-    pub const ALL: [Menu; 30] = [
+    pub const ALL: [Menu; 31] = [
         Menu::Mth,
         Menu::Vectr,
         Menu::Matr,
@@ -216,6 +335,7 @@ impl Menu {
         Menu::Plot,
         Menu::Chars,
         Menu::Io,
+        Menu::Eqlib,
     ];
 
     /// The menus on F7–F11.
@@ -253,7 +373,11 @@ impl Menu {
             Menu::Plot => "PLOT",
             Menu::Chars => "CHARS",
             Menu::Io => "I/O",
+            Menu::Eqlib => "EQ LIB",
             Menu::UnitCat(i) => CATEGORIES[i as usize].0,
+            Menu::Tmenu => "CST",
+            Menu::Msolvr => "MSOLVR",
+            Menu::Conlib => "CONLIB",
         }
     }
 
@@ -306,6 +430,7 @@ impl Menu {
             Menu::Plot => PLOT,
             Menu::Chars => crate::keys::CHARS,
             Menu::Io => IO,
+            Menu::Eqlib => EQLIB,
             Menu::Units => &CATEGORIES.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
             Menu::UnitCat(i) => CATEGORIES[i as usize].1,
             Menu::Solvr => return calc.solvr_items(),
@@ -313,15 +438,17 @@ impl Menu {
             // The custom menu lists what the variable CST holds.
             Menu::Cst => {
                 return match calc.global("CST") {
-                    Some(Obj::List(l)) => l
-                        .iter()
-                        .map(|o| match o {
-                            Obj::Name(n) | Obj::Str(n) => n.clone(),
-                            o => o.show(calc.fmt),
-                        })
-                        .collect(),
+                    Some(Obj::List(l)) => labels(calc, l),
                     _ => vec![],
                 };
+            }
+            Menu::Tmenu => return labels(calc, &calc.tmenu),
+            Menu::Msolvr => return calc.msolvr_items(),
+            Menu::Conlib => {
+                return crate::consts::CONSTANTS
+                    .iter()
+                    .map(|(n, ..)| n.to_string())
+                    .collect();
             }
         };
         fixed.iter().map(|s| s.to_string()).collect()
